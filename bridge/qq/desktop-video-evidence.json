@@ -1,0 +1,256 @@
+{
+  "formatVersion": 1,
+  "runtimeTested": false,
+  "method": "Offline disassembly of exact official PE and both Mach-O slices; never executed native libraries. Command table targets and callback message IDs were checked against current bridge argument shapes.",
+  "profiles": {
+    "darwin-arm64": {
+      "commands": {
+        "14": "0x44528",
+        "30": "0x495f8",
+        "31": "0x4997c",
+        "33": "0x49d04",
+        "34": "0x4aabc",
+        "35": "0x4ade4",
+        "36": "0x4b59c",
+        "43": "0x51ddc",
+        "44": "0x59394",
+        "45": "0x5a124",
+        "46": "0x4ce50",
+        "47": "0x4d614",
+        "48": "0x4e12c",
+        "49": "0x4e474",
+        "54": "0x53ac0"
+      },
+      "callbackFunctions": {
+        "20025": [
+          "0x35ff4",
+          "0xfde0"
+        ],
+        "20026": [
+          "0x100e0",
+          "0x495f8"
+        ],
+        "20028": [
+          "0x10508",
+          "0x49d04"
+        ],
+        "20030": [
+          "0x109fc"
+        ],
+        "20031": [
+          "0x28a04"
+        ],
+        "20033": [
+          "0x10fac",
+          "0x36330"
+        ],
+        "20049": [
+          "0x28fa0"
+        ],
+        "20053": [
+          "0x6063c"
+        ],
+        "20066": [
+          "0x143a0",
+          "0x4aabc"
+        ]
+      }
+    },
+    "darwin-x64": {
+      "commands": {
+        "14": "0x45ae4",
+        "30": "0x4b11e",
+        "31": "0x4b4cc",
+        "33": "0x4b880",
+        "34": "0x4c84e",
+        "35": "0x4cbb2",
+        "36": "0x4d402",
+        "43": "0x54240",
+        "44": "0x5bf0c",
+        "45": "0x5ce14",
+        "46": "0x4ed2a",
+        "47": "0x4f60a",
+        "48": "0x501e6",
+        "49": "0x5054e",
+        "54": "0x56066"
+      },
+      "callbackFunctions": {
+        "20025": [
+          "0x11506",
+          "0x36e5a"
+        ],
+        "20026": [
+          "0x117fa",
+          "0x4b11e"
+        ],
+        "20028": [
+          "0x11c0e",
+          "0x4b880"
+        ],
+        "20030": [
+          "0x11fec"
+        ],
+        "20031": [
+          "0x28b12"
+        ],
+        "20033": [
+          "0x125a6",
+          "0x37196"
+        ],
+        "20049": [
+          "0x291b5"
+        ],
+        "20053": [
+          "0x62b94"
+        ],
+        "20066": [
+          "0x15ae0",
+          "0x4c84e"
+        ]
+      }
+    },
+    "win32-x64": {
+      "commandsRVA": {
+        "14": "0x2ea3c0",
+        "30": "0x2ec7e0",
+        "31": "0x2ec4d0",
+        "33": "0x303ab0",
+        "34": "0x306790",
+        "35": "0x304d70",
+        "36": "0x306da0",
+        "43": "0x2f4ac0",
+        "44": "0x2fd1c0",
+        "45": "0x307460",
+        "46": "0x2e6f10",
+        "47": "0x302480",
+        "48": "0x305710",
+        "49": "0x305eb0",
+        "54": "0x2fe8f0"
+      },
+      "callbackFunctionsRVA": {
+        "20025": [
+          "0x2d5250",
+          "0x317b30"
+        ],
+        "20026": [
+          "0x2ccf50",
+          "0x2ec7e0"
+        ],
+        "20028": [
+          "0x2d3930",
+          "0x303ab0"
+        ],
+        "20030": [
+          "0x2d0f00"
+        ],
+        "20031": [
+          "0x2c0190"
+        ],
+        "20033": [
+          "0x2d0bc0",
+          "0x317930"
+        ],
+        "20049": [
+          "0x2c2320"
+        ],
+        "20053": [
+          "0x308ce0"
+        ],
+        "20066": [
+          "0x2d3a80",
+          "0x306790"
+        ]
+      }
+    }
+  },
+  "auditedAt": "2026-10-06",
+  "callbackShapes": {
+    "20025": [
+      "uid:string",
+      "available:int"
+    ],
+    "20026": [
+      "result:int"
+    ],
+    "20028": [
+      "result:int"
+    ],
+    "20030": [
+      "width:int",
+      "height:int",
+      "fps:int"
+    ],
+    "20031": [
+      "uid:string",
+      "sourceType:int",
+      "width:int",
+      "height:int"
+    ],
+    "20033": [
+      "uid:string",
+      "available:int"
+    ],
+    "20049": [
+      "uid:string",
+      "sourceType:int",
+      "width:int",
+      "height:int"
+    ],
+    "20053": [],
+    "20066": [
+      "result:int"
+    ]
+  },
+  "commandArguments": {
+    "14": [],
+    "30": [],
+    "31": [],
+    "33": [
+      "requestJSON:string"
+    ],
+    "34": [],
+    "35": [
+      "sourceType:int"
+    ],
+    "36": [
+      "sourceType:int"
+    ],
+    "43": [
+      "peerUID:string"
+    ],
+    "44": [
+      "isDisplay:bool",
+      "windowOrDisplayID:uint64",
+      "flag:bool"
+    ],
+    "45": [],
+    "46": [
+      "includeVirtual:bool"
+    ],
+    "47": [
+      "deviceID:string",
+      "flag:bool",
+      "flag:bool"
+    ],
+    "48": [],
+    "49": [],
+    "54": [
+      "count:int",
+      "uids:string[]",
+      "sourceTypes:int[]",
+      "rectangles:string[]",
+      "width:int",
+      "height:int",
+      "scale:uint64"
+    ]
+  },
+  "mapping": {
+    "window": "Electron getMediaSourceId window numeric component (CGWindowID on macOS, HWND on Windows), never NSView pointer",
+    "display": "Explicit Electron display-capture source rendered into an owned window. Native 44 always uses isDisplay=false, avoiding an assumed mapping from Electron display_id to QQ native display IDs."
+  },
+  "limitations": [
+    "No Windows/macOS native code was executed in this Linux environment. Exact binary match enables the implementation; hardware, OS permissions, decoder/encoder, drivers and remote delivery require user runtime validation.",
+    "Native ACK proves local command result only; external frames are not remote-delivery receipts.",
+    "Mac and Windows virtual camera requires explicit driver installation and exact QQ device ID."
+  ]
+}

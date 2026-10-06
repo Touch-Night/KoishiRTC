@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": "..",
+    "paths": {
+      "koishi-plugin-rtc-bridge": ["../src/index.ts"],
+      "koishi-plugin-rtc-bridge/core": ["../src/core.ts"]
+    }
+  }
+}

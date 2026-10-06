@@ -1,0 +1,471 @@
+{
+  "source": {
+    "library": "/home/touchnight/App/KoishiRTC/runtime/qq-linux-test/QQ/resources/app/avsdk/libAVSDKPlugin.so",
+    "sha256": "07cf80b01fb42539ddc4d3a4e95853f26d51b8300ab0b7d4effe2986f1a6f34c",
+    "version": "3.2.34-53644",
+    "architecture": "Linux ARM64",
+    "method": "Static objdump/nm/read-only ELF string inspection; no native library load or calls"
+  },
+  "commands": {
+    "33": {
+      "name": "StartRemoteVideo",
+      "address": "0x4e6f84",
+      "jsParam": [
+        "JSON.stringify({count,request_list})"
+      ],
+      "requestListFields": {
+        "uid": "string",
+        "sourceType": "int",
+        "terminalType": "int",
+        "isNeedToRequest": "bool",
+        "isLocal": "bool",
+        "isBig": "bool"
+      },
+      "notes": [
+        "Keep count equal to array length; count drives native allocation before list length check.",
+        "Numeric enum values require GUI corroboration."
+      ],
+      "evidence": "video-startremote.asm",
+      "defaults": {
+        "count": 0,
+        "sourceType": 0,
+        "terminalType": 0,
+        "isNeedToRequest": false,
+        "isLocal": false,
+        "isBig": false
+      },
+      "defaultsEvidence": {
+        "integer": "get_json_value(GenericValue,int&,int) @0x4db50c; missing/non-int fallback 0x4db668..0x4db66c stores zero",
+        "boolean": "get_json_value(GenericValue,bool&,bool) @0x4e7c84; missing/non-bool fallback 0x4e7de0..0x4e7de4 stores zero; flags==0xa is explicit true at 0x4e7f08..0x4e7f10",
+        "topLevel": "0x4e7030 parses the char* JSON directly; 0x4e7168 builds count key and 0x4e7244+ searches request_list. There is no top-level array-to-object conversion."
+      },
+      "mavForwarding": {
+        "address": "0x6952a4",
+        "sceneRange": "2..7",
+        "kept": [
+          "uid",
+          "sourceType",
+          "isBig"
+        ],
+        "unused": [
+          "terminalType",
+          "isNeedToRequest",
+          "isLocal"
+        ],
+        "evidence": "video-remoteservice.asm: 0x695398 copies uid, 0x69539c loads sourceType, 0x6953a0 loads isBig; only these fields written to MAV request array at 0x6953a8..0x6953ac"
+      },
+      "sourceTypes": {
+        "Camera": 1,
+        "ShareScreen": 2,
+        "Media": 3,
+        "evidence": "Parent GUI audit: cache-objects-converter.json bytecode2892 (communicated by /root/qq_group_retest)"
+      },
+      "response": [
+        "nativeBool:1=queued,0=rejected",
+        "message:string"
+      ]
+    },
+    "47": {
+      "name": "StartCameraCapture",
+      "jsParam": [
+        "camera_name:string",
+        "is_id:bool",
+        "support_vcam:bool"
+      ],
+      "evidence": [
+        "video-camera.asm",
+        "0x4ea084 reads log literal 0x1822e1 naming arguments in order",
+        "0x4ea764..0x4ea77c forwards bools to camera core virtual method +32"
+      ],
+      "response": [
+        "ret:0=requested,-1=failed",
+        "message:string"
+      ],
+      "notes": [
+        "Existing camera core causes supplied device to be ignored; release49 before switching devices.",
+        "Immediate ACK0 may be followed by a second correlated47 reply from asynchronous DeviceOpen; the first receipt does not prove device opening.",
+        "Immediate message: Start camera capture success!; DeviceOpen success reply:[0,empty string]; failure reply:[-1,OpenCamera fail].",
+        "DeviceOpen success log: avsdk output(wrapper): camera DeviceOpen success; callback lambda0x4fa72c sends47 with saved requestId then clears it.",
+        "broadcast-core.so directly accesses V4L2 in this build; no camera helper process is required. CameraCapture_GetCameraDevice true matches bus_info, false matches card; its native fallback to the first camera requires the bridge to validate exact enumeration matches itself."
+      ]
+    },
+    "53": {
+      "name": "MoveRect",
+      "address": "0x4f08dc",
+      "jsParam": [
+        "count:int",
+        "uids:string[]",
+        "sourceTypes:int[]",
+        "rects:string[]"
+      ],
+      "reply": false,
+      "rectFormat": "left,top,right,bottom",
+      "evidence": [
+        "video-moverect.asm",
+        "video-gl-update.asm"
+      ]
+    },
+    "54": {
+      "name": "SizeRect",
+      "address": "0x4f0e20",
+      "jsParam": [
+        "count:int",
+        "uids:string[]",
+        "sourceTypes:int[]",
+        "rects:string[]",
+        "canvasWidth:int",
+        "canvasHeight:int",
+        "scalePercent:int"
+      ],
+      "example": [
+        1,
+        [
+          "REMOTE_UID"
+        ],
+        [
+          1
+        ],
+        [
+          "0,0,640,480"
+        ],
+        640,
+        480,
+        100
+      ],
+      "reply": false,
+      "rectFormat": "left,top,right,bottom",
+      "evidence": [
+        "video-moverect.asm: 0x4f0e38/0x4f0e40/0x4f0e54 read final 3 args, scale / 100 at 0x4f0e90",
+        "video-gl-update.asm: 0x4c159c..0x4c161c parse 4 comma-delimited integers",
+        "video-paint-normal.asm: 0x4c3dc4 right-left and 0x4c3dc8 bottom-top"
+      ]
+    },
+    "35": {
+      "name": "StartShareSend",
+      "address": "0x4e816c",
+      "jsParam": [
+        "ShareType.Screen=1"
+      ],
+      "response": [
+        "nativeBool:1=queued,0=rejected",
+        "message:string"
+      ],
+      "service": "0x6957e8: only stored scene2..7 with MAVEngine; other scenes false",
+      "engine": "0x71bd38 queues worker request then returns1; not remote delivery"
+    },
+    "36": {
+      "name": "StopShareSend",
+      "address": "0x4e83c4",
+      "jsParam": [
+        "ShareType.Screen=1"
+      ],
+      "response": [
+        "nativeBool:1=queued,0=rejected",
+        "message:string"
+      ],
+      "service": "0x6958e4: only stored scene2..7 with MAVEngine; other scenes false",
+      "engine": "0x71bd8c queues worker request then returns1 even without previous start"
+    },
+    "44": {
+      "name": "SetScreenCaptureWindowInfo",
+      "address": "0x4f7b10",
+      "jsParam": [
+        "isFullWindow:boolean (false=native window;true=monitor)",
+        "windowId:uint64",
+        "isUseComputerVoice:boolean"
+      ],
+      "response": [
+        "ret:0=success",
+        "message:string"
+      ],
+      "notes": [
+        "Some errors report id0; correlate only to the unique in-flight same command",
+        "Linux native path rejects Wayland",
+        "Successful branch also emits20052"
+      ],
+      "waylandDetection": {
+        "function": "util::IsWayland0x5091fc",
+        "condition": "getenv('XDG_SESSION_TYPE') != nullptr && strcmp(value,'wayland') == 0",
+        "cache": false,
+        "callSite": "SetScreenCaptureWindowInfo4f7b48 calls every time; result storedthis+988",
+        "XvfbFix": "SetXDG_SESSION_TYPE=x11 andunsetWAYLAND_DISPLAY inlauncher beforeElectron/PPAPI subprocess creation; changes toHost main process env do not change already-running native plugin process."
+      }
+    },
+    "45": {
+      "name": "StopWindowScreenCapture",
+      "jsParam": [],
+      "response": [
+        "ret:0=success",
+        "message:string"
+      ]
+    },
+    "46": {
+      "name": "EnumAvailableCameras",
+      "address": "0x4e9514",
+      "jsParam": [
+        "includeVirtual:boolean"
+      ],
+      "response": [
+        "ret:0=success",
+        "message:string",
+        "names:string[]",
+        "ids:string[]"
+      ]
+    },
+    "48": {
+      "name": "StartTransformLocalCameraData",
+      "jsParam": [],
+      "response": [
+        "ret:0=success,-1=missingCameraCore",
+        "message:string"
+      ],
+      "notes": [
+        "Does not initialize/open a default camera in this binary, despite misleading diagnostic text",
+        "Requires camera core created by47"
+      ]
+    },
+    "49": {
+      "name": "StopCameraCapture",
+      "jsParam": [],
+      "response": [
+        "ret:0=success",
+        "message:string"
+      ],
+      "notes": [
+        "Release before every camera device change;47 ignores new ID when a previous camera core remains",
+        "Exact[-1,No Existing Camera capture] is an idempotent absent-core result; other errors must not be treated as stopped."
+      ]
+    },
+    "34": {
+      "name": "StopRemoteVideo",
+      "jsParam": [],
+      "response": [
+        "nativeBool:1=queued,0=rejected",
+        "message:string"
+      ],
+      "notes": [
+        "20066 separate asynchronous callback uses ret0=success, unlike synchronous command receipt"
+      ]
+    },
+    "30": {
+      "name": "GoOnStage",
+      "address": "0x4e6c70",
+      "jsParam": [],
+      "response": [
+        "int:scene2..7 MAV1=queued0=rejected;scene1 DAV0=queued1=error"
+      ],
+      "notes": [
+        "Single integer response, without a second message string.",
+        "Required camera publication step after capture47 and transform48; capture/transform alone do not announce video to the room.",
+        "MAV scene2..7 QRTCService::GoOnStage0x69551c calls MAVEngineImpl vtable+160, resolved to StartVideoSend0x71bc60.",
+        "ACK is not evidence that a camera frame was captured or delivered.",
+        "DAV scene1 return differs: QRTCService converts NtrtcVideoImpl return!=0; Start/Stop normally PostTask and return0, uninitialized returns-6. GUI converter749/775 uses asyncCall directly for isC2C instead of waiting20026/20027."
+      ],
+      "evidence": [
+        "video-stage30-31.asm",
+        "GUI VideoStore.openCamera5696 and handleGoOnStage5708",
+        "converter757 registers20026 before sending30"
+      ]
+    },
+    "31": {
+      "name": "GoOffStage",
+      "jsParam": [],
+      "response": [
+        "int:scene2..7 MAV1=queued0=rejected;scene1 DAV0=queued1=error"
+      ],
+      "notes": [
+        "Single integer response, without a second message string.",
+        "MAV scene2..7 engine vtable+168 resolves to StopVideoSend0x71bccc.",
+        "Stop publication separately from releasing camera capture49.",
+        "DAV scene1 return differs: QRTCService converts NtrtcVideoImpl return!=0; Start/Stop normally PostTask and return0, uninitialized returns-6. GUI converter749/775 uses asyncCall directly for isC2C instead of waiting20026/20027."
+      ]
+    }
+  },
+  "ppapiParameters": {
+    "rule": "Nested arrays expand to two ABI arguments (pointer,length), automatically. Do not put explicit array lengths in JS params.",
+    "evidence": "video-ppapi-parse.asm: 0x4b2718..0x4b2740",
+    "recommendedBridgeValidation": [
+      "Validate all parallel arrays count match",
+      "Rect format must have exactly four signed decimal integers with right > left and bottom > top",
+      "Use positive bounded canvas dimensions and scalePercent (100 = 1x)",
+      "Keep nested arrays at most 16 entries: decoder uses 128-byte per-array stack blocks",
+      "Avoid null/undefined/object params: unsupported native types do not provide useful ABI argument data"
+    ]
+  },
+  "render": {
+    "flow": [
+      "QRTCServiceInterfaceWrapper::OnRecvVideoFrame @0x4cb934",
+      "GLRender::IsVisible @0x4c1124 checks g_page_visible",
+      "OutputNormal/OutputGpu copies into GLRenderInfo",
+      "GLRender::Update posts main-thread callback",
+      "GLRender::UpdateCallBack @0x4c2e88 requires key UID@sourceType set by cmd53/54",
+      "Paint to PPAPI surface"
+    ],
+    "pageVisibility": "Instance_DidChangeView @0x4be82c calls PPB_View;1.2 vtable +32 (IsPageVisible) and stores g_page_visible @0x1095768. Hidden pages drop frames at 0x4cb960 and again 0x4c2edc.",
+    "missingTexture": "0x4c3074 logs Can not find texture info key and drops update; cmd33 does not create layout",
+    "jsPixelCallback": false,
+    "captureProposal": "Configure visible/nonzero embed surface and cmd54 layout, then capture the host page; runtime capture must verify actual pixels.",
+    "ppapiInit": [
+      "PPB_Core;1.0",
+      "PPB_Instance;1.0",
+      "PPB_Graphics3D;1.0",
+      "PPB_View;1.2",
+      "PPB_Graphics2D;1.2",
+      "PPB_ImageData;1.0"
+    ],
+    "evidence": [
+      "video-recv.asm",
+      "video-output.asm",
+      "video-gl-updatecallback.asm",
+      "video-ppapi-init.asm",
+      "video-gl-init.asm"
+    ],
+    "localCameraFrame": "CameraCore registers DataCallBack0x4bbad4; OnVideoFrameOut0x509864 is a separate media-player interface and must not be assumed to prove camera capture."
+  },
+  "callbacks": {
+    "20025": {
+      "name": "OnUserVideo",
+      "payload": [
+        "uid:string",
+        "enabled:int(0|1)"
+      ]
+    },
+    "20028": {
+      "name": "OnStartRemoteVideoResult",
+      "payload": [
+        "ret:int"
+      ],
+      "address": "0x4cb790"
+    },
+    "20031": {
+      "name": "NotifyFirstFrame",
+      "payload": [
+        "uid:string",
+        "sourceType:int",
+        "width:int",
+        "height:int"
+      ],
+      "address": "0x4bf720"
+    },
+    "20033": {
+      "name": "OnRemoteScreenShare",
+      "payload": [
+        "uid:string",
+        "enabled:int(0|1)"
+      ]
+    },
+    "20034": {
+      "name": "OnScreenShareResponse",
+      "payload": [
+        "code:int"
+      ],
+      "address": "0x4cc390"
+    },
+    "20049": {
+      "name": "NotifySizeChange",
+      "payload": [
+        "uid:string",
+        "sourceType:int",
+        "width:int",
+        "height:int"
+      ],
+      "address": "0x4bfe34",
+      "note": "width/height swapped for rotation enum 1 or 3",
+      "renderEvidence": "GLRender::UpdateCallBack0x4c32c8 calls NotifySizeChange with actual GLRenderInfo before CreateTextures;20031 first-frame branch at0x4c32ac."
+    },
+    "20062": {
+      "name": "OnSemiAutoRecvVideo",
+      "payload": "not fully decoded in this audit"
+    },
+    "20063": {
+      "name": "OnSemiAutoRecvScreenShare",
+      "payload": "not fully decoded in this audit"
+    },
+    "20066": {
+      "name": "OnStopRemoteVideoResult",
+      "payload": [
+        "ret:int"
+      ],
+      "address": "0x4cf9b8"
+    },
+    "20059": {
+      "name": "OnVideoSizeChanged",
+      "address": "0x5095f8",
+      "payload": [
+        "width:int",
+        "height:int"
+      ],
+      "notes": [
+        "Media-player OnVideoSizeChanged interface; do not use as sole camera capture or remote delivery evidence."
+      ]
+    },
+    "20060": {
+      "name": "OnError(camera)",
+      "address": "0x509704",
+      "payload": [
+        "int",
+        "int",
+        "int",
+        "int"
+      ]
+    },
+    "20026": {
+      "name": "OnGoOnStageResult",
+      "address": "0x4cb448",
+      "payload": [
+        "state:int"
+      ],
+      "enum": {
+        "ForBid": 1,
+        "EnterAudio": 2,
+        "SitSuccess": 3,
+        "SitFail": 4,
+        "ExitSuccess": 5,
+        "VisitorFail": 7,
+        "MeetingControl": 8,
+        "SingleMic0ff": 9
+      },
+      "guiCompatibility": "VideoStore.goOnStage GUI5870 accepts SitSuccess3 OR0 OR1; other values return false and handleGoOnStage stops capture. These are async result values, not the synchronous command30 bool ACK.",
+      "evidence": [
+        "converter2971 defines enum",
+        "converter764 maps payload[0] to ret",
+        "GUI5870 offsets00db..013f"
+      ]
+    },
+    "20053": {
+      "name": "CameraDeviceLost",
+      "payload": [],
+      "id": 0,
+      "evidence": "ARM64DeviceLost lambda4fab00:4fab74 StopCameraCapture(0),4fab78 MessageNotify20053; x6456a760:56a7cf then56a7d4."
+    }
+  },
+  "runtimeValidation": false,
+  "scope": "Static ABI audit for the exact Linux ARM64 library; no video delivery claim. Native ACKs, decoded frame notices, local rendering, and remote delivery are separate facts.",
+  "enums": {
+    "sourceType": {
+      "None": 0,
+      "Camera": 1,
+      "ShareScreen": 2,
+      "Media": 3,
+      "GUI": "converter BytecodeArray2892"
+    },
+    "ShareType": {
+      "Unknown": 0,
+      "Screen": 1,
+      "PPT": 2,
+      "MediaFile": 3,
+      "GUI": "converter BytecodeArray2881"
+    }
+  },
+  "sceneEvidence": {
+    "GetScene": "0x69845c loads [this+608]",
+    "Request": "0x6927e4 stores tagQRTCAppScene argument to [this+608]",
+    "limitation": "33/34/35/36 are MAV-only scene2..7 in the audited QRTCService; native scene1 DAV camera/receive/share requires separate path, not assumed equivalent"
+  },
+  "cameraCaptureCompatibility": {
+    "i420ShaderMissing": "53644 ARM64 original package lacks I420toRGB_ps.glsl required byCameraCapture_CaptureCamera type4; GL_InitShader fopen fails without_r8 fallback. Choose supportedNV12/YUYV shader path instead.",
+    "nv12TailPadding": "CameraCapture_ThreadProc5874c loadsQUERYBUF.length;58764 clamps actual bytes;NV12/NV21 length>payload branch587a0..58888 misinterprets tail page padding as row padding.640x360 payload345600/pagealigned348160 produces guessedstride644 instead ofbytesperline640. Use NV12 output dimensions whose payload is page-size aligned, e.g.512x288 or1024x576 for4096-byte pages.",
+    "proofScope": "Static native branch matches runtime mapbuffer348160 and diagonal/cross-plane corruption; verify workaround with independent virtual-device capture and remote picture.",
+    "stopNeedsFrames": "CameraCapture_ThreadProc586dc checksrunning then586ec/586f0 poll(fd,1,-1). GraphicsCapture_Release3a9fc clearsrunning,3aa00 XWaitThread→4c418 pthread_join, withoutpollwakeup. CameraCapture_Release callsit57fcc BEFORE STREAMOFF5802c andclose58034. Keep virtualproducer deliveringlastframe until49finalACK,thenstopproducer; no duplicate upstream receipts for repeatedframes."
+  }
+}

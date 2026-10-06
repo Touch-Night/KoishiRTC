@@ -1,0 +1,196 @@
+{
+  "formatVersion": 1,
+  "platform": "wechat",
+  "os": "darwin",
+  "calibrated": false,
+  "label": "微信私聊语音",
+  "notes": [
+    "Calibration required: these are explicit starter workflows, not a declaration that a particular client build was tested.",
+    "Preflight opens settings, reads the account and both audio device selections, and closes settings before call control. Edit these settings selectors to the actual accessibility tree; no audio setting is changed automatically.",
+    "Exact target identity must be exposed. Do not substitute a non-unique contact nickname for an account ID; inspect the contact detail or meeting ID view and scope selectors appropriately.",
+    "Client settings may expose names in title, description or value depending on platform. The inspector reports all three.",
+    "While connected, account and routes are bound to the previously checked process/configuration. Manual changes to hidden settings cannot be detected continuously."
+  ],
+  "identity": {
+    "role": "AXStaticText",
+    "name": "{self}"
+  },
+  "target": {
+    "role": "AXStaticText",
+    "name": "{target}"
+  },
+  "audioInput": {
+    "role": "AXPopUpButton",
+    "name": "{input}"
+  },
+  "audioOutput": {
+    "role": "AXPopUpButton",
+    "name": "{output}"
+  },
+  "states": {
+    "idle": {
+      "all": [
+        {
+          "role": "AXWindow",
+          "name": "微信"
+        }
+      ],
+      "none": [
+        {
+          "role": "AXStaticText",
+          "name": "通话中"
+        },
+        {
+          "role": "AXButton",
+          "name": "接听"
+        },
+        {
+          "role": "AXButton",
+          "name": "挂断"
+        }
+      ]
+    },
+    "connected": [
+      {
+        "role": "AXStaticText",
+        "name": "通话中"
+      }
+    ],
+    "ringing": [
+      {
+        "role": "AXButton",
+        "name": "接听"
+      }
+    ],
+    "dialing": [
+      {
+        "role": "AXStaticText",
+        "name": "正在呼叫"
+      }
+    ]
+  },
+  "actions": {
+    "dial": {
+      "kind": "direct",
+      "steps": [
+        {
+          "kind": "setValue",
+          "selector": {
+            "role": "AXTextField",
+            "name": "搜索"
+          },
+          "value": "{target}"
+        },
+        {
+          "kind": "invoke",
+          "selector": {
+            "role": "AXStaticText",
+            "name": "{target}"
+          }
+        },
+        {
+          "kind": "invoke",
+          "selector": {
+            "role": "AXButton",
+            "name": "语音通话"
+          },
+          "commit": true
+        }
+      ]
+    },
+    "accept": {
+      "kind": "direct",
+      "steps": [
+        {
+          "kind": "invoke",
+          "selector": {
+            "role": "AXButton",
+            "name": "接听"
+          },
+          "commit": true
+        }
+      ]
+    },
+    "reject": {
+      "kind": "direct",
+      "steps": [
+        {
+          "kind": "invoke",
+          "selector": {
+            "role": "AXButton",
+            "name": "拒绝"
+          },
+          "commit": true
+        }
+      ]
+    },
+    "hangup": {
+      "kind": "direct",
+      "steps": [
+        {
+          "kind": "invoke",
+          "selector": {
+            "role": "AXButton",
+            "name": "挂断"
+          },
+          "commit": true
+        }
+      ]
+    }
+  },
+  "evidenceMode": "preflight",
+  "preflight": [
+    {
+      "kind": "invoke",
+      "selector": {
+        "role": "AXButton",
+        "name": "设置"
+      },
+      "waitFor": {
+        "role": "AXButton",
+        "name": "账号设置"
+      }
+    },
+    {
+      "kind": "invoke",
+      "selector": {
+        "role": "AXButton",
+        "name": "账号设置"
+      },
+      "waitFor": {
+        "role": "AXStaticText",
+        "name": "{self}"
+      }
+    },
+    {
+      "kind": "verify",
+      "field": "identity"
+    },
+    {
+      "kind": "invoke",
+      "selector": {
+        "role": "AXButton",
+        "name": "音视频"
+      },
+      "waitFor": {
+        "role": "AXPopUpButton",
+        "name": "{input}"
+      }
+    },
+    {
+      "kind": "verify",
+      "field": "audioInput"
+    },
+    {
+      "kind": "verify",
+      "field": "audioOutput"
+    },
+    {
+      "kind": "invoke",
+      "selector": {
+        "role": "AXButton",
+        "name": "关闭"
+      }
+    }
+  ]
+}

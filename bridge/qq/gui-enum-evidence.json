@@ -1,0 +1,389 @@
+{
+  "Scene": {
+    "constantPoolStart": "0x1b09993",
+    "bytecodeStart": "0x1b09a75",
+    "values": [
+      {
+        "name": "SceneUnknow",
+        "stringOffset": "0x1b09993",
+        "value": 0,
+        "bytecodeOffset": "0x1b09a75",
+        "bytecodeHex": "0c d0 39 03 00 00 13 00 3b 03 f7 02"
+      },
+      {
+        "name": "SceneFriend",
+        "stringOffset": "0x1b099ab",
+        "value": 1,
+        "bytecodeOffset": "0x1b09a81",
+        "bytecodeHex": "0d 01 d0 39 03 01 04 13 01 3b 03 f7 06"
+      },
+      {
+        "name": "SceneFriendShare",
+        "stringOffset": "0x1b099c3",
+        "value": 2,
+        "bytecodeOffset": "0x1b09a8e",
+        "bytecodeHex": "0d 02 d0 39 03 02 08 13 02 3b 03 f7 0a"
+      },
+      {
+        "name": "SceneGroup",
+        "stringOffset": "0x1b099df",
+        "value": 3,
+        "bytecodeOffset": "0x1b09a9b",
+        "bytecodeHex": "0d 03 d0 39 03 03 0c 13 03 3b 03 f7 0e"
+      },
+      {
+        "name": "SceneDiscuss",
+        "stringOffset": "0x1b099f7",
+        "value": 4,
+        "bytecodeOffset": "0x1b09aa8",
+        "bytecodeHex": "0d 04 d0 39 03 04 10 13 04 3b 03 f7 12"
+      },
+      {
+        "name": "SceneLiveGroup",
+        "stringOffset": "0x1b09a0f",
+        "value": 5,
+        "bytecodeOffset": "0x1b09ab5",
+        "bytecodeHex": "0d 05 d0 39 03 05 14 13 05 3b 03 f7 16"
+      },
+      {
+        "name": "SceneTemp",
+        "stringOffset": "0x1b09a2b",
+        "value": 6,
+        "bytecodeOffset": "0x1b09ac2",
+        "bytecodeHex": "0d 06 d0 39 03 06 18 13 06 3b 03 f7 1a"
+      },
+      {
+        "name": "SceneCommon",
+        "stringOffset": "0x1b09a43",
+        "value": 7,
+        "bytecodeOffset": "0x1b09acf",
+        "bytecodeHex": "0d 07 d0 39 03 07 1c 13 07 3b 03 f7 1e"
+      },
+      {
+        "name": "SceneDavTemp",
+        "stringOffset": "0x1b09a5b",
+        "value": 8,
+        "bytecodeOffset": "0x1b09adc",
+        "bytecodeHex": "0d 08 d0 39 03 08 20 13 08 3b 03 f7 22"
+      }
+    ]
+  },
+  "QRTCQuitReason": {
+    "constantPoolStart": "0x4419511",
+    "bytecodeStart": "0x441957a",
+    "values": [
+      {
+        "name": "QRTCQuitReasonNone",
+        "stringOffset": "0x4419511",
+        "value": 0,
+        "bytecodeOffset": "0x441957a",
+        "bytecodeHex": "0c d0 39 03 00 00 13 00 3b 03 f7 02"
+      },
+      {
+        "name": "QRTCQuitReasonD2M",
+        "stringOffset": "0x4419531",
+        "value": 1,
+        "bytecodeOffset": "0x4419586",
+        "bytecodeHex": "0d 01 d0 39 03 01 04 13 01 3b 03 f7 06"
+      },
+      {
+        "name": "QRTCQuitReasonSwitchToOther",
+        "stringOffset": "0x4419551",
+        "value": 2,
+        "bytecodeOffset": "0x4419593",
+        "bytecodeHex": "0d 02 d0 39 03 02 08 13 02 3b 03 f7 0a"
+      }
+    ]
+  },
+  "QRTCSelfCloseReason": {
+    "constantPoolStart": "0x44196db",
+    "bytecodeStart": "0x4419a82",
+    "values": [
+      {
+        "name": "QRTCSelfCloseReasonDefault",
+        "stringOffset": "0x44196db",
+        "value": 0,
+        "bytecodeOffset": "0x4419a82",
+        "bytecodeHex": "0c d0 39 03 00 00 13 00 3b 03 f7 02"
+      },
+      {
+        "name": "QRTCSelfCloseReasonSwitchGroup",
+        "stringOffset": "0x4419703",
+        "value": 1,
+        "bytecodeOffset": "0x4419a8e",
+        "bytecodeHex": "0d 01 d0 39 03 01 04 13 01 3b 03 f7 06"
+      },
+      {
+        "name": "QRTCSelfCloseReasonClientLogout",
+        "stringOffset": "0x441972f",
+        "value": 2,
+        "bytecodeOffset": "0x4419a9b",
+        "bytecodeHex": "0d 02 d0 39 03 02 08 13 02 3b 03 f7 0a"
+      },
+      {
+        "name": "QRTCSelfCloseReasonNetError",
+        "stringOffset": "0x441975b",
+        "value": 3,
+        "bytecodeOffset": "0x4419aa8",
+        "bytecodeHex": "0d 03 d0 39 03 03 0c 13 03 3b 03 f7 0e"
+      },
+      {
+        "name": "QRTCSelfCloseReasonAccpet3RDRequest",
+        "stringOffset": "0x4419783",
+        "value": 7,
+        "bytecodeOffset": "0x4419ab5",
+        "bytecodeHex": "0d 07 d0 39 03 04 10 13 04 3b 03 f7 12"
+      },
+      {
+        "name": "QRTCSelfCloseReasonSwitchMeeting",
+        "stringOffset": "0x44197b3",
+        "value": 8,
+        "bytecodeOffset": "0x4419ac2",
+        "bytecodeHex": "0d 08 d0 39 03 05 14 13 05 3b 03 f7 16"
+      },
+      {
+        "name": "QRTCSelfCloseReasonCommonEnd",
+        "stringOffset": "0x44197df",
+        "value": 99,
+        "bytecodeOffset": "0x4419acf",
+        "bytecodeHex": "0d 63 d0 39 03 06 18 13 06 3b 03 f7 1a"
+      },
+      {
+        "name": "QRTCSelfCloseReasonQCallToPSTN",
+        "stringOffset": "0x4419807",
+        "value": 100,
+        "bytecodeOffset": "0x4419adc",
+        "bytecodeHex": "0d 64 d0 39 03 07 1c 13 07 3b 03 f7 1e"
+      },
+      {
+        "name": "QRTCSelfCloseReasonQCallToSysCall",
+        "stringOffset": "0x4419833",
+        "value": 101,
+        "bytecodeOffset": "0x4419ae9",
+        "bytecodeHex": "0d 65 d0 39 03 08 20 13 08 3b 03 f7 22"
+      },
+      {
+        "name": "QRTCSelfCloseReasonQCallToCallback",
+        "stringOffset": "0x4419863",
+        "value": 102,
+        "bytecodeOffset": "0x4419af6",
+        "bytecodeHex": "0d 66 d0 39 03 09 24 13 09 3b 03 f7 26"
+      },
+      {
+        "name": "QRTCSelfCloseReasonQCallInvalidQQ",
+        "stringOffset": "0x4419893",
+        "value": 103,
+        "bytecodeOffset": "0x4419b03",
+        "bytecodeHex": "0d 67 d0 39 03 0a 28 13 0a 3b 03 f7 2a"
+      },
+      {
+        "name": "QRTCSelfCloseReasonQCallInvalidAccount",
+        "stringOffset": "0x44198c3",
+        "value": 104,
+        "bytecodeOffset": "0x4419b10",
+        "bytecodeHex": "0d 68 d0 39 03 0b 2c 13 0b 3b 03 f7 2e"
+      },
+      {
+        "name": "QRTCSelfCloseReasonQCallIdentityError",
+        "stringOffset": "0x44198f7",
+        "value": 105,
+        "bytecodeOffset": "0x4419b1d",
+        "bytecodeHex": "0d 69 d0 39 03 0c 30 13 0c 3b 03 f7 32"
+      },
+      {
+        "name": "QRTCSelfCloseReasonQCallNotFriend",
+        "stringOffset": "0x441992b",
+        "value": 106,
+        "bytecodeOffset": "0x4419b2a",
+        "bytecodeHex": "0d 6a d0 39 03 0d 34 13 0d 3b 03 f7 36"
+      },
+      {
+        "name": "QRTCSelfCloseReasonQCallSVRError",
+        "stringOffset": "0x441995b",
+        "value": 107,
+        "bytecodeOffset": "0x4419b37",
+        "bytecodeHex": "0d 6b d0 39 03 0e 38 13 0e 3b 03 f7 3a"
+      },
+      {
+        "name": "QRTCSelfCloseReasonQCallRcCountLimit",
+        "stringOffset": "0x4419987",
+        "value": 108,
+        "bytecodeOffset": "0x4419b44",
+        "bytecodeHex": "0d 6c d0 39 03 0f 3c 13 0f 3b 03 f7 3e"
+      },
+      {
+        "name": "QRTCSelfCloseReasonQCallRcPPTLimit",
+        "stringOffset": "0x44199b7",
+        "value": 109,
+        "bytecodeOffset": "0x4419b51",
+        "bytecodeHex": "0d 6d d0 39 03 10 40 13 10 3b 03 f7 42"
+      },
+      {
+        "name": "QRTCSelfCloseReasonQCallToUinBeBlocked",
+        "stringOffset": "0x44199e7",
+        "value": 110,
+        "bytecodeOffset": "0x4419b5e",
+        "bytecodeHex": "0d 6e d0 39 03 11 44 13 11 3b 03 f7 46"
+      },
+      {
+        "name": "QRTCSelfCloseReasonQCallFromUinBeBlocked",
+        "stringOffset": "0x4419a1b",
+        "value": 111,
+        "bytecodeOffset": "0x4419b6b",
+        "bytecodeHex": "0d 6f d0 39 03 12 48 13 12 3b 03 f7 4a"
+      },
+      {
+        "name": "QRTCSelfCloseReasonQCallReasonEnd",
+        "stringOffset": "0x4419a4f",
+        "value": 199,
+        "bytecodeOffset": "0x4419b78",
+        "bytecodeHex": "00 0d c7 00 d0 39 03 13 4c 13 13 3b 03 f7 4e"
+      }
+    ]
+  },
+  "QRTCRejectReason": {
+    "constantPoolStart": "0x4419c79",
+    "bytecodeStart": "0x4419d12",
+    "values": [
+      {
+        "name": "QRTCRejectReasonDefault",
+        "stringOffset": "0x4419c79",
+        "value": 1,
+        "bytecodeOffset": "0x4419d12",
+        "bytecodeHex": "0d 01 d0 39 03 00 00 13 00 3b 03 f7 02"
+      },
+      {
+        "name": "QRTCRejectReasonSelfReject",
+        "stringOffset": "0x4419c9d",
+        "value": 2,
+        "bytecodeOffset": "0x4419d1f",
+        "bytecodeHex": "0d 02 d0 39 03 01 04 13 01 3b 03 f7 06"
+      },
+      {
+        "name": "QRTCRejectReasonIsCalling",
+        "stringOffset": "0x4419cc5",
+        "value": 3,
+        "bytecodeOffset": "0x4419d2c",
+        "bytecodeHex": "0d 03 d0 39 03 02 08 13 02 3b 03 f7 0a"
+      },
+      {
+        "name": "QRTCRejectReasonConflict",
+        "stringOffset": "0x4419ced",
+        "value": 100,
+        "bytecodeOffset": "0x4419d39",
+        "bytecodeHex": "0d 64 d0 39 03 03 0c 13 03 3b 03 f7 0e"
+      }
+    ]
+  },
+  "CommandCalibration": {
+    "constantPoolStart": "0x1b0b504",
+    "bytecodeStart": "0x1b0dbf7",
+    "values": [
+      {
+        "name": "CommandUnknow",
+        "stringOffset": "0x1b0b504",
+        "value": 0,
+        "bytecodeOffset": "0x1b0dbf7",
+        "bytecodeHex": "0c d0 39 03 00 00 13 00 3b 03 f7 02"
+      },
+      {
+        "name": "CommandLogin",
+        "stringOffset": "0x1b0b520",
+        "value": 1,
+        "bytecodeOffset": "0x1b0dc03",
+        "bytecodeHex": "0d 01 d0 39 03 01 04 13 01 3b 03 f7 06"
+      },
+      {
+        "name": "CommandLoginOut",
+        "stringOffset": "0x1b0b538",
+        "value": 2,
+        "bytecodeOffset": "0x1b0dc10",
+        "bytecodeHex": "0d 02 d0 39 03 02 08 13 02 3b 03 f7 0a"
+      },
+      {
+        "name": "CommandUpdateSelfUid",
+        "stringOffset": "0x1b0b554",
+        "value": 3,
+        "bytecodeOffset": "0x1b0dc1d",
+        "bytecodeHex": "0d 03 d0 39 03 03 0c 13 03 3b 03 f7 0e"
+      },
+      {
+        "name": "CommandStartCall",
+        "stringOffset": "0x1b0b574",
+        "value": 4,
+        "bytecodeOffset": "0x1b0dc2a",
+        "bytecodeHex": "0d 04 d0 39 03 04 10 13 04 3b 03 f7 12"
+      },
+      {
+        "name": "CommandAccept",
+        "stringOffset": "0x1b0b590",
+        "value": 5,
+        "bytecodeOffset": "0x1b0dc37",
+        "bytecodeHex": "0d 05 d0 39 03 05 14 13 05 3b 03 f7 16"
+      },
+      {
+        "name": "CommandIgnore",
+        "stringOffset": "0x1b0b5ac",
+        "value": 6,
+        "bytecodeOffset": "0x1b0dc44",
+        "bytecodeHex": "0d 06 d0 39 03 06 18 13 06 3b 03 f7 1a"
+      },
+      {
+        "name": "CommandInvite",
+        "stringOffset": "0x1b0b5c8",
+        "value": 7,
+        "bytecodeOffset": "0x1b0dc51",
+        "bytecodeHex": "0d 07 d0 39 03 07 1c 13 07 3b 03 f7 1e"
+      },
+      {
+        "name": "CommandQuit",
+        "stringOffset": "0x1b0b5e4",
+        "value": 8,
+        "bytecodeOffset": "0x1b0dc5e",
+        "bytecodeHex": "0d 08 d0 39 03 08 20 13 08 3b 03 f7 22"
+      },
+      {
+        "name": "CommandReject",
+        "stringOffset": "0x1b0b5fc",
+        "value": 9,
+        "bytecodeOffset": "0x1b0dc6b",
+        "bytecodeHex": "0d 09 d0 39 03 09 24 13 09 3b 03 f7 26"
+      },
+      {
+        "name": "CommandClose",
+        "stringOffset": "0x1b0b618",
+        "value": 10,
+        "bytecodeOffset": "0x1b0dc78",
+        "bytecodeHex": "0d 0a d0 39 03 0a 28 13 0a 3b 03 f7 2a"
+      },
+      {
+        "name": "CommandClearRoom",
+        "stringOffset": "0x1b0b630",
+        "value": 11,
+        "bytecodeOffset": "0x1b0dc85",
+        "bytecodeHex": "0d 0b d0 39 03 0b 2c 13 0b 3b 03 f7 2e"
+      },
+      {
+        "name": "CommandKickOutUsers",
+        "stringOffset": "0x1b0b64c",
+        "value": 12,
+        "bytecodeOffset": "0x1b0dc92",
+        "bytecodeHex": "0d 0c d0 39 03 0c 30 13 0c 3b 03 f7 32"
+      },
+      {
+        "name": "CommandGetRoomInfo",
+        "stringOffset": "0x1b0b66c",
+        "value": 13,
+        "bytecodeOffset": "0x1b0dc9f",
+        "bytecodeHex": "0d 0d d0 39 03 0d 34 13 0d 3b 03 f7 36"
+      },
+      {
+        "name": "CommandGetChattingRoomId",
+        "stringOffset": "0x1b0b68c",
+        "value": 14,
+        "bytecodeOffset": "0x1b0dcac",
+        "bytecodeHex": "0d 0e d0 39 03 0e 38 13 0e 3b 03 f7 3a"
+      }
+    ]
+  }
+}

@@ -1,0 +1,96 @@
+<!-- SPDX-License-Identifier: GPL-3.0-only; derived from ClaudiaGardner/maibot-qq-voice-call. -->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Koishi RTC QQ Call AVSDK Host</title>
+    <style>html,body{margin:0;overflow:hidden;background:#000}embed{display:block}</style>
+  </head>
+  <body>
+    <script>
+      "use strict";
+
+      const { ipcRenderer } = require("electron");
+      const knownMethods = [
+        "login",
+        "logout",
+        "startCall",
+        "quit",
+        "close",
+        "clearRoom",
+        "invite",
+        "ignore",
+        "reject",
+        "acceptInvite",
+        "startTRAEAudio",
+        "stopTRAEAudio",
+        "openMic",
+        "closeMic",
+        "sendNTDataToAVSdk",
+        "postMessage",
+      ];
+
+      function inspectPlugin() {
+        try {
+          const plugin = document.getElementById("avsdk");
+          const methods = new Set();
+          for (const name in plugin) {
+            try {
+              if (typeof plugin[name] === "function") methods.add(name);
+            } catch {}
+          }
+          for (const name of knownMethods) {
+            try {
+              if (typeof plugin[name] === "function") methods.add(name);
+            } catch {}
+          }
+          ipcRenderer.send("koishi-rtc-qq-avsdk-state", {
+            ready: true,
+            pluginFound: Boolean(plugin && typeof plugin.postMessage === 'function'),
+            methods: [...methods].sort(),
+            error: null,
+          });
+        } catch (error) {
+          ipcRenderer.send("koishi-rtc-qq-avsdk-state", {
+            ready: true,
+            pluginFound: false,
+            methods: [],
+            error: error?.message ?? String(error),
+          });
+        }
+      }
+
+      window.koishiRTCQQAVSDKInvoke = (command, id, params) => {
+        const plugin = document.getElementById("avsdk");
+        if (!plugin || typeof plugin.postMessage !== "function") {
+          throw new Error("AVSDK postMessage is unavailable");
+        }
+        if (!Number.isInteger(command) || !Number.isInteger(id) || !Array.isArray(params)) {
+          throw new Error("invalid AVSDK invocation");
+        }
+        plugin.postMessage({ cmd: command, id, param: params });
+        return { posted: true, command, id };
+      };
+      window.koishiRTCQQVideoSurface = (width, height) => {
+        const plugin = document.getElementById('avsdk');
+        plugin.width = String(width); plugin.height = String(height);
+      };
+
+      // Install listeners before insertion can start native initialization.
+      // RegisterChannelListener may emit before window.load on a fast machine.
+      const plugin = document.createElement('embed');
+      plugin.id = 'avsdk';
+      plugin.type = 'application/x-ppapi-avSDK';
+      plugin.width = '1'; plugin.height = '1';
+      plugin.addEventListener('crash', () => ipcRenderer.send('koishi-rtc-qq-avsdk-crash'));
+      plugin.addEventListener("message", (event) => {
+          ipcRenderer.send("koishi-rtc-qq-avsdk-message");
+          if (event.data && typeof event.data === "object") {
+            ipcRenderer.send("koishi-rtc-qq-avsdk-raw-message", event.data);
+          }
+      });
+      document.body.appendChild(plugin);
+      window.addEventListener('load', () => setTimeout(inspectPlugin, 1500));
+    </script>
+  </body>
+</html>

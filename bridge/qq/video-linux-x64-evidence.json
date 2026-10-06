@@ -1,0 +1,87 @@
+{
+  "profile": "qq-linux-3.2.34-53644-x64",
+  "librarySHA256": "c143c4e8ac94c20bcefb037e7062fbeccd0528bd746108d6bf1f0ae8e1710a8b",
+  "method": "Read-only ELF symbol, command-registration, x86-64 disassembly and independent field/return review; no library loaded or real call made",
+  "runtimeTested": false,
+  "commands": {
+    "33": {
+      "address": "0x5547a0",
+      "signature": "QRTCServiceInterfaceWrapper::StartRemoteVideo(unsigned int, char const*)"
+    },
+    "34": {
+      "address": "0x555900",
+      "signature": "QRTCServiceInterfaceWrapper::StopRemoteVideo(unsigned int)"
+    },
+    "35": {
+      "address": "0x555b70",
+      "signature": "QRTCServiceInterfaceWrapper::StartShareSend(unsigned int, qav::service_interface::QRTCShareType)"
+    },
+    "36": {
+      "address": "0x555de0",
+      "signature": "QRTCServiceInterfaceWrapper::StopShareSend(unsigned int, qav::service_interface::QRTCShareType)"
+    },
+    "44": {
+      "address": "0x5671d0",
+      "signature": "QRTCServiceInterfaceWrapper::SetScreenCaptureWindowInfo(unsigned int, bool, unsigned long, bool)"
+    },
+    "45": {
+      "address": "0x568760",
+      "signature": "QRTCServiceInterfaceWrapper::StopWindowScreenCapture(unsigned int)"
+    },
+    "46": {
+      "address": "0x556fe0",
+      "signature": "QRTCServiceInterfaceWrapper::EnumAvailableCameras(unsigned int, bool)"
+    },
+    "47": {
+      "address": "0x557d10",
+      "signature": "QRTCServiceInterfaceWrapper::StartCameraCapture(unsigned int, char const*, bool, bool)"
+    },
+    "48": {
+      "address": "0x558800",
+      "signature": "QRTCServiceInterfaceWrapper::StartTransformLocalCameraData(unsigned int)"
+    },
+    "49": {
+      "address": "0x558c20",
+      "signature": "QRTCServiceInterfaceWrapper::StopCameraCapture(unsigned int)"
+    },
+    "53": {
+      "address": "0x55eca0",
+      "signature": "QRTCServiceInterfaceWrapper::MoveRect(unsigned int, unsigned long, char const**, unsigned long, unsigned long*, unsigned long, char const**, unsigned long)"
+    },
+    "54": {
+      "address": "0x55f2b0",
+      "signature": "QRTCServiceInterfaceWrapper::SizeRect(unsigned int, unsigned long, char const**, unsigned long, unsigned long*, unsigned long, char const**, unsigned long, unsigned long, unsigned long, unsigned long)"
+    },
+    "43": {
+      "address": "0x55d3c0",
+      "signature": "QRTCServiceInterfaceWrapper::PeerC2CToDoubleMeetingEnable(unsigned int, char const*)"
+    },
+    "30": {
+      "address": "0x554470",
+      "signature": "QRTCServiceInterfaceWrapper::GoOnStage(unsigned int)"
+    },
+    "31": {
+      "address": "0x554600",
+      "signature": "QRTCServiceInterfaceWrapper::GoOffStage(unsigned int)"
+    }
+  },
+  "verified": {
+    "33": "0x5547a0 parses count/request_list, sourceType at5550bb→+0x18, terminalType555110→+0x1c, isNeedToRequest555168→+0x20,isLocal5551bc→+0x21,isBig555202→+0x22. Same JSON as ARM64.",
+    "35_36": "Native bool returned in AL then movzx into first CallArg;1 success,0 failure. 36 at555e13/555f2b;not ret0.",
+    "44": "5671d0 accepts bool,windowId,bool; r15b false branches567890 sets mode2/native window at+0x190; true setsmode1/display at+0x188. Wayland checked567204; ACK44 andsuccesscallback20052.",
+    "46": "556fe0 emits four CallArgs at557734/557748/557757/55776e: ret0,emptystring,firstNAMEID vector names,second IDs. Includecamera boolean forwarded.",
+    "47": "557d10 argument literals camera_name/is_id/support_vcam andcoreexisting branch557d88 bypassesdeviceinit; same selectedcamera49→47→48 sequencing requirement.",
+    "48": "558810 checks core nonnull; starts transform at5588ba; missingcore branch5589b6 sends-1. No default-camera initialization despite log.",
+    "49": "558c33 loads camera core thenreleaseandnull558c49; command49 receipt withret0.",
+    "53_54": "55eca0/55f2b0 parallel pointer-length arrays,54last3 width,height,scalePercent; resizescale divide100 andMoveRect; noMessageSendACK.",
+    "20025": "534710 builds UID string then bool integer;MessageSend20025 at534862.",
+    "20033": "5356e0 builds UID string then bool integer;MessageSend20033 at53586a.",
+    "20028_20066": "534d50/5392d0 singleint callbackret.",
+    "20031_20049": "526ef0/527870 build uid,sourceType,width,height;NotifySizeChange swapsw/honrotation1or3;MessageSend20031/20049.",
+    "render": "5260b0 sets g_page_visible usingPPB_View+0x20. 534f00 dropsframeswhenGLRender::IsVisible false.52b000 requiresuid@sourceType texturelayout,NotifyFirstFrame at52b44c andNotifySizeChange at52b460 beforeCreateTextures.",
+    "scope": "Same sourceType/ShareType GUI contract forbuild53644; runtime video remains untested onx64. Scene1 DAV handling remains separate fromMAV.",
+    "33_34_ACK": "33@555360 movzx AL into first CallArg;34 analogous. ACK first value is bool1=success,0=rejected. Separate20028/20066 callbacks instead use ret0=success.",
+    "43": "55d3f9 preserves original request ID from esi; peer UID rdx; 55d481 movzx ebx,bl carries native bool; CallArg type0/int32 at55d511/518 then type2/emptystring at55d51c..559; MessageSend command0x2b and original ID at55d5c8..d1. [1,empty] supported, [0,empty] unsupported, not ret0-success.",
+    "30_31": "MAV serviceGoOnStage789010 invokesMAVEngineImpl vtable+0xa0. Relocation at vtable13d2b00+16+0xa0 resolves8136b0 StartVideoSend;next+0xa8 resolves813710 StopVideoSend. Camera47/48 only capture/transform and must be followed by30 to publish. Native ACK is singlebool integer, not ret0;async20026 reportsstage result. See native-camera-publish-review.asm."
+  }
+}

@@ -1,0 +1,59 @@
+{
+  "profileId": "qq-win32-9.9.36-53644-x64",
+  "platform": "win32",
+  "architecture": "x64",
+  "qqVersion": "9.9.36-53644",
+  "method": "Offline PE disassembly plus V8 cached-bytecode analysis of the same official installer; no Windows executable or DLL was run",
+  "runtimeTested": false,
+  "officialConfig": "https://qq-web.cdn-go.cn/im.qq.com_new/latest/rainbow/pcConfig.json",
+  "officialPackage": "https://qqdl.gtimg.cn/qqfile/QQNTV2/9.9.36/release/e8e54bbb/QQ_9.9.36_260924_x64_01.exe",
+  "officialSigningEndpoint": "https://im.qq.com/http2rpc/gotrpc/noauth/trpc.qqntv2.urlsign.UrlSign/GetSign",
+  "installerSHA256": "63255c70c7ff523e7eed7d52d9708ed7a77ea346ece6474c65dded406edb3155",
+  "installerBytes": 330446512,
+  "library": "Files/versions/9.9.36-53644/resources/app/avsdk/AVSDKPlugin.dll",
+  "librarySHA256": "199a6e8d2849908ce33ea21085be702b69ee6938a67191b3e0dbe753caab93ac",
+  "libraryBytes": 21244456,
+  "peImageBase": "0x180000000",
+  "exportsRVA": { "PPP_GetInterface": "0x2c6610", "PPP_InitializeModule": "0x2c6660", "PPP_ShutdownModule": "0x2c6730" },
+  "dispatch": { "CallCppRVA": "0x29dbe0", "tableInitializerRVA": "0x20f2d0", "entries": 112, "entryBytes": 16 },
+  "commands": {
+    "1": { "name": "Login", "rva": "0x2f10c0", "parameters": "[selfUid,selfUin,selfUin,accountPath,'']" },
+    "4": { "name": "StartCall", "rva": "0x3001e0", "parameters": "[JSON.stringify(snake_case_start_parameters)]", "evidence": "GUI getStartCallParams and snake_case converter, not inferred from Linux" },
+    "5": { "name": "Accept", "rva": "0x2e1960", "parameters": "[invite[0],invite[1],[invite[1]],invite[3],invite[4],Boolean(invite[10]),invite[11]]" },
+    "8": { "name": "Quit", "rva": "0x2f6710", "parameters": "[sceneId,0]", "scope": "group/screenshare; private normal hangup uses 10" },
+    "9": { "name": "Reject", "rva": "0x2f7dd0", "parameters": "[1,peerUid,2]" },
+    "10": { "name": "Close", "rva": "0x2e4150", "parameters": "[1,peerUid,0]" },
+    "13": { "name": "GetRoomInfo", "rva": "0x2ebf30", "parameters": "[sceneId,relationId]", "acknowledgement": "[ret:int32,'']; not a lifecycle event" },
+    "18": { "name": "StartTRAEAudio", "rva": "0x305460", "parameters": "[microphoneEnabled:boolean,speakerEnabled:boolean]", "enabledByBridge": false },
+    "55": { "name": "Kernel network forwarding", "rva": "0x2f3490" },
+    "102": { "name": "SelectAudioDevice", "rva": "0x2fad60", "parameters": "[inputId:int32,outputId:int32]", "acknowledgement": "[1,''] is unconditional submission evidence, not selection success" },
+    "103": { "name": "GetAllAudioDevicesInfo", "rva": "0x2e9b60", "parameters": "[]", "resultEvent": 20061 }
+  },
+  "callbacks": {
+    "20008": { "rva": "0x2d3f90", "alternativeRVA": "0x314350", "value": "[uid:string,accountType:int,creator:0|1,micOff:int,extra1:int,extra2:int,extra3:string]", "alternative": "TRTC route retains seven fields; non-UID fields use defaults" },
+    "20009": { "rva": "0x2d41d0", "alternativeRVA": "0x3145e0", "value": "[quitReason:int,uid:string,accountType:int,creator:int,micOff:int,extra1:int,extra2:int,extra3:string,extra4:string]" },
+    "20010": { "rva": "0x2cbed0", "value": "[roomJson:string,result:int]", "json": "{relation_id:string,scene_id:int,user_num:int,user_list:[{uid:string,account_type:int}]}" },
+    "20011": { "rva": "0x2d10f0", "value": "[sceneId:int32,relationId:string,extra:string]" },
+    "20018": { "rva": "0x2cebd0", "value": "[reason:int32]" },
+    "20019": { "rva": "0x2cead0", "value": "[]" },
+    "20022": { "rva": "0x2c9e20", "value": "[reason:int32,errorCode:int32,userEventExited:0|1,extraCode:int32,extra1:string,extra2:string]" },
+    "20061": { "rva": "0x2f2510", "value": "[outputIds:int[],outputNames:string[],outputExtra:string[],inputIds:int[],inputNames:string[],inputExtra:string[],selectedOutputId:int,selectedInputId:int,defaultOutputId:int,defaultInputId:int]", "notes": "Fields 2 and 5 are string vectors (tag 4), NOT counts. Device id 0 is the GUI default selector and is refused." }
+  },
+  "guiEvidence": {
+    "host": { "majorNodeBytecodeOffset": "0x740f1c", "strings": ["avsdk/AVSDKPlugin.dll", "application/x-ppapi-avSDK", "register-pepper-plugins", "allow-command-line-plugins"] },
+    "sceneEnumOffset": "0x1e78785",
+    "startParametersOffset": "0x1f5f0c2",
+    "snakeCaseConverterOffset": "0x4574d5c",
+    "groupJoinOffset": "0x59ece96",
+    "deviceCallbackOffset": "0x456c6bb",
+    "constants": { "SceneFriend": 1, "SceneGroup": 3, "InviteNormal": 0, "InviteGroupAV": 3, "SelfReject": 2, "SelfCloseDefault": 0, "QuitNone": 0 },
+    "groupJoin": "raiseAV({groupInfo,userList:[self]}); self filtering yields invite_count 0, invite_uids [], scene_id 3, invite_original 3"
+  },
+  "limitations": [
+    "Static compatibility is not Windows runtime validation.",
+    "Participant callbacks and room snapshot layouts are statically verified, but have not been tested in a live Windows call.",
+    "Audio is captured through two virtual audio buses, not a verified per-participant PCM callback.",
+    "Group join has no native atomic join-existing-only flag; fresh activity gating cannot eliminate the room-ended race.",
+    "Device-change observation and shutdown cannot prove a zero-duration native fallback window."
+  ]
+}

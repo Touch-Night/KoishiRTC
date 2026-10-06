@@ -1,0 +1,8 @@
+{
+  "id": "qq-win32-9.9.36-53644-x64",
+  "qqVersion": "9.9.36-53644",
+  "platform": "win32",
+  "arch": "x64",
+  "librarySHA256": "199a6e8d2849908ce33ea21085be702b69ee6938a67191b3e0dbe753caab93ac",
+  "runtimeTested": false
+}

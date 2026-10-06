@@ -1,0 +1,1026 @@
+{
+  "generatedAt": "2026-10-05T12:09:25.329940+00:00",
+  "source": {
+    "officialLandingPage": "https://im.qq.com/index/#/linux",
+    "officialConfigURL": "https://qq-web.cdn-go.cn/im.qq.com_new/latest/rainbow/pcConfig.json",
+    "sourceURL": "https://qqdl.gtimg.cn/qqfile/QQNTV2/9.9.36/release/9ee04bef/QQ_3.2.34_260924_arm64_01.deb",
+    "downloadMethod": "Official website GetSign endpoint for the configured URL, then HTTP GET signed CDN URL. Ephemeral signed query is intentionally omitted.",
+    "packageFile": "/tmp/qq-avsdk-static-nuqq4iv7/QQ_arm64.deb",
+    "packageBytes": 207538924,
+    "packageSHA256": "181b895cb573548e396e54bb0548cca92ffdc1b1a4b018fa4551bb062385fdca",
+    "packageDownloadCompletedAt": "2026-10-05T12:00:33.418961+00:00",
+    "extractedDirectory": "/tmp/qq-avsdk-static-nuqq4iv7/extracted",
+    "extractedAt": "2026-10-05T12:00:39.187261+00:00",
+    "extractedAtBasis": "filesystem ctime of extracted avsdk directory, recorded after dpkg-deb -x completed",
+    "qqVersion": "3.2.34-53644",
+    "buildVersion": "53644",
+    "architecture": "arm64",
+    "libraryFile": "/tmp/qq-avsdk-static-nuqq4iv7/extracted/opt/QQ/resources/app/avsdk/libAVSDKPlugin.so",
+    "librarySHA256": "07cf80b01fb42539ddc4d3a4e95853f26d51b8300ab0b7d4effe2986f1a6f34c"
+  },
+  "method": "Static official ARM64 ELF symbol table, relocation table, AArch64 disassembly, string literals and DWARF inspection. No loading, launching, installation, live calls, or account operations.",
+  "validation": {
+    "runtimeTested": true,
+    "versionScope": "3.2.34-53644",
+    "compatibleWithExisting3_2_30": null,
+    "compatibilityNote": "Not verified; do not mix this library into the running 3.2.30 NapCat installation.",
+    "GUI": "Official encrypted bytecode was statically decoded later; exact GUI evidence is recorded in this file and gui-enum-evidence.json.",
+    "compatibilityStatus": "Linux private duplex verified; group connection still unverified"
+  },
+  "commandDispatch": {
+    "function": "CallCpp",
+    "address": "0x4bb804",
+    "table": "g_api_funcs",
+    "tableAddress": "0x10374f8",
+    "indexStrideBytes": 16,
+    "evidenceFile": "CallCpp.asm",
+    "mapFile": "command-map.txt"
+  },
+  "serialization": {
+    "MessageSend": "0x4b2a4c",
+    "CallArgSizeBytes": 24,
+    "CallArgType0": "int32: dispatch to 0x4b2c44 creates PP_VARTYPE_INT32 (3), loading field +4",
+    "CallArgType2": "string: dispatch to 0x4b2c84 calls PPB_Var.VarFromUtf8 on std::string at +16",
+    "dispatchTargets": {
+      "0": "0x4b2c44",
+      "1": "0x4b2c6c",
+      "2": "0x4b2c84",
+      "3": "0x4b2cc8",
+      "4": "0x4b2d70",
+      "5": "0x4b2b38"
+    },
+    "evidenceFile": "MessageSend.asm"
+  },
+  "callbacks": {
+    "20008": {
+      "name": "OnUserJoinRoom",
+      "valueSchema": [
+        "uid:string",
+        "account_type:int32",
+        "is_room_creator:int32 (0 or 1 from native bool)",
+        "is_mic_off_by_admin:int32 (native enum; do not coerce unknown nonzero meanings)",
+        "unknown_user_field_0x24:int32",
+        "unknown_user_field_0x28:int32",
+        "unknown_user_field_0x30:string"
+      ],
+      "argumentCount": 7,
+      "supportedProjection": {
+        "uidIndex": 0,
+        "accountTypeIndex": 1,
+        "isRoomCreatorIndex": 2
+      },
+      "evidence": [
+        "0x4c7814..0x4c78b4 builds seven CallArg entries",
+        "0x4c797c uses callback 20008",
+        "log string at 0x1954f0 names first four user fields"
+      ]
+    },
+    "20009": {
+      "name": "OnUserLeaveRoom",
+      "valueSchema": [
+        "quit_reason:int32",
+        "uid:string",
+        "account_type:int32",
+        "is_room_creator:int32 (0 or 1 from native bool)",
+        "is_mic_off_by_admin:int32 (native enum)",
+        "unknown_user_field_0x24:int32",
+        "unknown_user_field_0x28:int32",
+        "unknown_user_field_0x30:string",
+        "unknown_user_field_0x50:string"
+      ],
+      "argumentCount": 9,
+      "supportedProjection": {
+        "quitReasonIndex": 0,
+        "uidIndex": 1,
+        "accountTypeIndex": 2,
+        "isRoomCreatorIndex": 3
+      },
+      "evidence": [
+        "0x4c7b78..0x4c7c60 builds nine CallArg entries",
+        "0x4c7d34 uses callback 20009",
+        "log string at 0x14b82b names reason and first four user fields"
+      ]
+    },
+    "20010": {
+      "name": "OnGetRoomInfo",
+      "valueSchema": [
+        "roomJson:string",
+        "ret:int32"
+      ],
+      "argumentCount": 2,
+      "successCondition": "ret === 0 and roomJson parses to the documented object; the native implementation also requires non-null QRTCRoomInfo",
+      "errorValue": [
+        "",
+        "ret (can be zero if native room pointer was null)"
+      ],
+      "roomJsonSchema": {
+        "relation_id": "decimal uint64 string",
+        "scene_id": "int32 enum, numeric meaning unknown",
+        "user_num": "int32",
+        "user_list": [
+          {
+            "uid": "string",
+            "account_type": "int32 enum, numeric meaning unknown"
+          }
+        ]
+      },
+      "supportedProjection": {
+        "roomJsonIndex": 0,
+        "retIndex": 1,
+        "membersPath": "user_list",
+        "uidKey": "uid",
+        "accountTypeKey": "account_type"
+      },
+      "evidence": [
+        "0x4c7ecc branches to failure if ret != 0; 0x4c7ed4 if room pointer null",
+        "0x4c7fd4..0x4c8118 writes exact JSON keys/types",
+        "0x4c820c..0x4c8298 returns empty string plus ret on failure",
+        "0x4c835c..0x4c8454 returns JSON string plus ret on success"
+      ]
+    },
+    "20011": {
+      "name": "OnRoomDestroy",
+      "valueSchema": [
+        "scene_id:int32",
+        "relation_id:decimal uint64 string",
+        "room_id:decimal uint64 string"
+      ],
+      "argumentCount": 3,
+      "evidence": [
+        "0x4c8758 stores original room id and relation id",
+        "0x4c87b4..0x4c87d0 converts both uint64 values to strings",
+        "0x4c87d4..0x4c8874 builds scene, relation_id string, room_id string in that order",
+        "0x4c8898 uses callback 20011",
+        "log string at 0x195563 names arguments"
+      ]
+    },
+    "20018": {
+      "name": "OnPeerReject",
+      "valueSchema": [
+        "reject_reason:int32 enum, numeric meaning unknown"
+      ],
+      "argumentCount": 1,
+      "evidence": [
+        "0x4ca014..0x4ca050 builds one integer CallArg and sends callback 20018"
+      ]
+    },
+    "20019": {
+      "name": "OnPeerCancelInvite",
+      "valueSchema": [],
+      "argumentCount": 0,
+      "evidence": [
+        "0x4ca184..0x4ca198 builds empty vector and sends callback 20019"
+      ]
+    },
+    "20022": {
+      "name": "OnChatClosed",
+      "valueSchema": [
+        "close_reason:int32 enum",
+        "error_code:int32",
+        "is_user_event_exited:int32 (0 or 1 from native bool)",
+        "extended_field_1:int32 (default -1)",
+        "extended_field_2:string (default empty)",
+        "extended_field_3:string (default empty)"
+      ],
+      "argumentCount": 6,
+      "supportedProjection": {
+        "closeReasonIndex": 0,
+        "errorCodeIndex": 1,
+        "isUserEventExitedIndex": 2
+      },
+      "extendedDetails": "When error_code == 907 (0x38b), extension buffer is non-null and length > 0, it parses protobuf field 1 as int32 and fields 2 and 3 as strings. The semantic names of these extension fields are unknown; do not expose them as user or room identifiers.",
+      "evidence": [
+        "log string 0x161821 names first three fields",
+        "0x4ca9e8..0x4caad0 handles extension",
+        "0x4caad8..0x4cabc4 builds six CallArg entries in order",
+        "0x4cac00 uses callback 20022"
+      ]
+    },
+    "20003": {
+      "name": "OnError",
+      "address": "0x4c611c",
+      "messageSendAddress": "0x4c6274",
+      "valueSchema": [
+        "scene_id:int32",
+        "relation_id:decimal uint64 string",
+        "error_message:string"
+      ],
+      "boundary": "Only matching room diagnostics; callback does not prove teardown."
+    },
+    "20005": {
+      "name": "OnConnectTimeOut",
+      "address": "0x4c6b70",
+      "messageSendAddress": "0x4c6be4",
+      "valueSchema": [],
+      "boundary": "Connection attempt timed out; absence of room identity requires a single unambiguous pending call. Does not prove teardown."
+    }
+  },
+  "enumFindings": {
+    "debugInfoNamedValuesFound": false,
+    "guiBytecodeNamedValuesFound": true,
+    "details": "Exact numeric enum assignments recovered from official GUI V8 cached bytecode; see guiBytecodeEvidence. Runtime compatibility with 3.2.30 still unknown."
+  },
+  "groupLiveVideo": {
+    "methods": [
+      "EnterRoom",
+      "EnterRoomByRoomId",
+      "ExitRoom",
+      "GetAVConfigString",
+      "GetRoomUserList",
+      "GetRoomUserCount",
+      "LoadNextPageMemberList"
+    ],
+    "status": "empty ret-only stubs in this version",
+    "evidenceFile": "GroupLiveVideo-stubs.asm",
+    "note": "Does not establish generic QQ group-call unavailability; it disproves these specific wrappers as working group-call entry points."
+  },
+  "consumerRules": [
+    "Only decode these layouts for the exact fingerprint/version or after separate validation.",
+    "UIDs are native strings; do not label them QQ numbers or infer UIN mappings.",
+    "Join and leave callbacks carry no room/session identifier. Only associate them with an unambiguous active call; otherwise keep diagnostic events only.",
+    "Room snapshots identify scene_id and relation_id; reject mismatched snapshots and retain existing participants on errors or malformed/empty JSON.",
+    "Join/leave observations alone do not establish a complete roster. Track snapshot/observation provenance.",
+    "Unknown trailing fields and enum values remain opaque and should not be displayed as named states.",
+    "No dial/reject/hangup control should claim verified support solely from these shapes; scene/reason values and runtime lifecycle still require validation."
+  ],
+  "guiBytecodeEvidence": {
+    "majorNodeSha256": "faaf321436fa0a33b11816d4282f7a8a82155e357888d7b4f3d052fb7eef6dbb",
+    "majorNodePath": "/tmp/qq-avsdk-static-nuqq4iv7/extracted/opt/QQ/resources/app/major.node",
+    "v8VersionStringInOfficialExecutable": "14.4.258.16",
+    "opcodeDefinitionsSourceURL": "https://raw.githubusercontent.com/v8/v8/14.4.258.16/src/interpreter/bytecodes.h",
+    "method": "Static byte reads only, no execution. Read constant-pool string lengths and each enum numeric assignment instruction, including Wide LdaSmi, paired with SetNamedProperty constant index and reverse lookup. CommandCalibration first15 matches native dispatcher.",
+    "enumEvidencePath": "/tmp/qq-avsdk-static-nuqq4iv7/gui-enum-evidence.json",
+    "enums": {
+      "Scene": {
+        "constantPoolStart": "0x1b09993",
+        "bytecodeStart": "0x1b09a75",
+        "values": [
+          {
+            "name": "SceneUnknow",
+            "stringOffset": "0x1b09993",
+            "value": 0,
+            "bytecodeOffset": "0x1b09a75",
+            "bytecodeHex": "0c d0 39 03 00 00 13 00 3b 03 f7 02"
+          },
+          {
+            "name": "SceneFriend",
+            "stringOffset": "0x1b099ab",
+            "value": 1,
+            "bytecodeOffset": "0x1b09a81",
+            "bytecodeHex": "0d 01 d0 39 03 01 04 13 01 3b 03 f7 06"
+          },
+          {
+            "name": "SceneFriendShare",
+            "stringOffset": "0x1b099c3",
+            "value": 2,
+            "bytecodeOffset": "0x1b09a8e",
+            "bytecodeHex": "0d 02 d0 39 03 02 08 13 02 3b 03 f7 0a"
+          },
+          {
+            "name": "SceneGroup",
+            "stringOffset": "0x1b099df",
+            "value": 3,
+            "bytecodeOffset": "0x1b09a9b",
+            "bytecodeHex": "0d 03 d0 39 03 03 0c 13 03 3b 03 f7 0e"
+          },
+          {
+            "name": "SceneDiscuss",
+            "stringOffset": "0x1b099f7",
+            "value": 4,
+            "bytecodeOffset": "0x1b09aa8",
+            "bytecodeHex": "0d 04 d0 39 03 04 10 13 04 3b 03 f7 12"
+          },
+          {
+            "name": "SceneLiveGroup",
+            "stringOffset": "0x1b09a0f",
+            "value": 5,
+            "bytecodeOffset": "0x1b09ab5",
+            "bytecodeHex": "0d 05 d0 39 03 05 14 13 05 3b 03 f7 16"
+          },
+          {
+            "name": "SceneTemp",
+            "stringOffset": "0x1b09a2b",
+            "value": 6,
+            "bytecodeOffset": "0x1b09ac2",
+            "bytecodeHex": "0d 06 d0 39 03 06 18 13 06 3b 03 f7 1a"
+          },
+          {
+            "name": "SceneCommon",
+            "stringOffset": "0x1b09a43",
+            "value": 7,
+            "bytecodeOffset": "0x1b09acf",
+            "bytecodeHex": "0d 07 d0 39 03 07 1c 13 07 3b 03 f7 1e"
+          },
+          {
+            "name": "SceneDavTemp",
+            "stringOffset": "0x1b09a5b",
+            "value": 8,
+            "bytecodeOffset": "0x1b09adc",
+            "bytecodeHex": "0d 08 d0 39 03 08 20 13 08 3b 03 f7 22"
+          }
+        ]
+      },
+      "QRTCQuitReason": {
+        "constantPoolStart": "0x4419511",
+        "bytecodeStart": "0x441957a",
+        "values": [
+          {
+            "name": "QRTCQuitReasonNone",
+            "stringOffset": "0x4419511",
+            "value": 0,
+            "bytecodeOffset": "0x441957a",
+            "bytecodeHex": "0c d0 39 03 00 00 13 00 3b 03 f7 02"
+          },
+          {
+            "name": "QRTCQuitReasonD2M",
+            "stringOffset": "0x4419531",
+            "value": 1,
+            "bytecodeOffset": "0x4419586",
+            "bytecodeHex": "0d 01 d0 39 03 01 04 13 01 3b 03 f7 06"
+          },
+          {
+            "name": "QRTCQuitReasonSwitchToOther",
+            "stringOffset": "0x4419551",
+            "value": 2,
+            "bytecodeOffset": "0x4419593",
+            "bytecodeHex": "0d 02 d0 39 03 02 08 13 02 3b 03 f7 0a"
+          }
+        ]
+      },
+      "QRTCSelfCloseReason": {
+        "constantPoolStart": "0x44196db",
+        "bytecodeStart": "0x4419a82",
+        "values": [
+          {
+            "name": "QRTCSelfCloseReasonDefault",
+            "stringOffset": "0x44196db",
+            "value": 0,
+            "bytecodeOffset": "0x4419a82",
+            "bytecodeHex": "0c d0 39 03 00 00 13 00 3b 03 f7 02"
+          },
+          {
+            "name": "QRTCSelfCloseReasonSwitchGroup",
+            "stringOffset": "0x4419703",
+            "value": 1,
+            "bytecodeOffset": "0x4419a8e",
+            "bytecodeHex": "0d 01 d0 39 03 01 04 13 01 3b 03 f7 06"
+          },
+          {
+            "name": "QRTCSelfCloseReasonClientLogout",
+            "stringOffset": "0x441972f",
+            "value": 2,
+            "bytecodeOffset": "0x4419a9b",
+            "bytecodeHex": "0d 02 d0 39 03 02 08 13 02 3b 03 f7 0a"
+          },
+          {
+            "name": "QRTCSelfCloseReasonNetError",
+            "stringOffset": "0x441975b",
+            "value": 3,
+            "bytecodeOffset": "0x4419aa8",
+            "bytecodeHex": "0d 03 d0 39 03 03 0c 13 03 3b 03 f7 0e"
+          },
+          {
+            "name": "QRTCSelfCloseReasonAccpet3RDRequest",
+            "stringOffset": "0x4419783",
+            "value": 7,
+            "bytecodeOffset": "0x4419ab5",
+            "bytecodeHex": "0d 07 d0 39 03 04 10 13 04 3b 03 f7 12"
+          },
+          {
+            "name": "QRTCSelfCloseReasonSwitchMeeting",
+            "stringOffset": "0x44197b3",
+            "value": 8,
+            "bytecodeOffset": "0x4419ac2",
+            "bytecodeHex": "0d 08 d0 39 03 05 14 13 05 3b 03 f7 16"
+          },
+          {
+            "name": "QRTCSelfCloseReasonCommonEnd",
+            "stringOffset": "0x44197df",
+            "value": 99,
+            "bytecodeOffset": "0x4419acf",
+            "bytecodeHex": "0d 63 d0 39 03 06 18 13 06 3b 03 f7 1a"
+          },
+          {
+            "name": "QRTCSelfCloseReasonQCallToPSTN",
+            "stringOffset": "0x4419807",
+            "value": 100,
+            "bytecodeOffset": "0x4419adc",
+            "bytecodeHex": "0d 64 d0 39 03 07 1c 13 07 3b 03 f7 1e"
+          },
+          {
+            "name": "QRTCSelfCloseReasonQCallToSysCall",
+            "stringOffset": "0x4419833",
+            "value": 101,
+            "bytecodeOffset": "0x4419ae9",
+            "bytecodeHex": "0d 65 d0 39 03 08 20 13 08 3b 03 f7 22"
+          },
+          {
+            "name": "QRTCSelfCloseReasonQCallToCallback",
+            "stringOffset": "0x4419863",
+            "value": 102,
+            "bytecodeOffset": "0x4419af6",
+            "bytecodeHex": "0d 66 d0 39 03 09 24 13 09 3b 03 f7 26"
+          },
+          {
+            "name": "QRTCSelfCloseReasonQCallInvalidQQ",
+            "stringOffset": "0x4419893",
+            "value": 103,
+            "bytecodeOffset": "0x4419b03",
+            "bytecodeHex": "0d 67 d0 39 03 0a 28 13 0a 3b 03 f7 2a"
+          },
+          {
+            "name": "QRTCSelfCloseReasonQCallInvalidAccount",
+            "stringOffset": "0x44198c3",
+            "value": 104,
+            "bytecodeOffset": "0x4419b10",
+            "bytecodeHex": "0d 68 d0 39 03 0b 2c 13 0b 3b 03 f7 2e"
+          },
+          {
+            "name": "QRTCSelfCloseReasonQCallIdentityError",
+            "stringOffset": "0x44198f7",
+            "value": 105,
+            "bytecodeOffset": "0x4419b1d",
+            "bytecodeHex": "0d 69 d0 39 03 0c 30 13 0c 3b 03 f7 32"
+          },
+          {
+            "name": "QRTCSelfCloseReasonQCallNotFriend",
+            "stringOffset": "0x441992b",
+            "value": 106,
+            "bytecodeOffset": "0x4419b2a",
+            "bytecodeHex": "0d 6a d0 39 03 0d 34 13 0d 3b 03 f7 36"
+          },
+          {
+            "name": "QRTCSelfCloseReasonQCallSVRError",
+            "stringOffset": "0x441995b",
+            "value": 107,
+            "bytecodeOffset": "0x4419b37",
+            "bytecodeHex": "0d 6b d0 39 03 0e 38 13 0e 3b 03 f7 3a"
+          },
+          {
+            "name": "QRTCSelfCloseReasonQCallRcCountLimit",
+            "stringOffset": "0x4419987",
+            "value": 108,
+            "bytecodeOffset": "0x4419b44",
+            "bytecodeHex": "0d 6c d0 39 03 0f 3c 13 0f 3b 03 f7 3e"
+          },
+          {
+            "name": "QRTCSelfCloseReasonQCallRcPPTLimit",
+            "stringOffset": "0x44199b7",
+            "value": 109,
+            "bytecodeOffset": "0x4419b51",
+            "bytecodeHex": "0d 6d d0 39 03 10 40 13 10 3b 03 f7 42"
+          },
+          {
+            "name": "QRTCSelfCloseReasonQCallToUinBeBlocked",
+            "stringOffset": "0x44199e7",
+            "value": 110,
+            "bytecodeOffset": "0x4419b5e",
+            "bytecodeHex": "0d 6e d0 39 03 11 44 13 11 3b 03 f7 46"
+          },
+          {
+            "name": "QRTCSelfCloseReasonQCallFromUinBeBlocked",
+            "stringOffset": "0x4419a1b",
+            "value": 111,
+            "bytecodeOffset": "0x4419b6b",
+            "bytecodeHex": "0d 6f d0 39 03 12 48 13 12 3b 03 f7 4a"
+          },
+          {
+            "name": "QRTCSelfCloseReasonQCallReasonEnd",
+            "stringOffset": "0x4419a4f",
+            "value": 199,
+            "bytecodeOffset": "0x4419b78",
+            "bytecodeHex": "00 0d c7 00 d0 39 03 13 4c 13 13 3b 03 f7 4e"
+          }
+        ]
+      },
+      "QRTCRejectReason": {
+        "constantPoolStart": "0x4419c79",
+        "bytecodeStart": "0x4419d12",
+        "values": [
+          {
+            "name": "QRTCRejectReasonDefault",
+            "stringOffset": "0x4419c79",
+            "value": 1,
+            "bytecodeOffset": "0x4419d12",
+            "bytecodeHex": "0d 01 d0 39 03 00 00 13 00 3b 03 f7 02"
+          },
+          {
+            "name": "QRTCRejectReasonSelfReject",
+            "stringOffset": "0x4419c9d",
+            "value": 2,
+            "bytecodeOffset": "0x4419d1f",
+            "bytecodeHex": "0d 02 d0 39 03 01 04 13 01 3b 03 f7 06"
+          },
+          {
+            "name": "QRTCRejectReasonIsCalling",
+            "stringOffset": "0x4419cc5",
+            "value": 3,
+            "bytecodeOffset": "0x4419d2c",
+            "bytecodeHex": "0d 03 d0 39 03 02 08 13 02 3b 03 f7 0a"
+          },
+          {
+            "name": "QRTCRejectReasonConflict",
+            "stringOffset": "0x4419ced",
+            "value": 100,
+            "bytecodeOffset": "0x4419d39",
+            "bytecodeHex": "0d 64 d0 39 03 03 0c 13 03 3b 03 f7 0e"
+          }
+        ]
+      },
+      "CommandCalibration": {
+        "constantPoolStart": "0x1b0b504",
+        "bytecodeStart": "0x1b0dbf7",
+        "values": [
+          {
+            "name": "CommandUnknow",
+            "stringOffset": "0x1b0b504",
+            "value": 0,
+            "bytecodeOffset": "0x1b0dbf7",
+            "bytecodeHex": "0c d0 39 03 00 00 13 00 3b 03 f7 02"
+          },
+          {
+            "name": "CommandLogin",
+            "stringOffset": "0x1b0b520",
+            "value": 1,
+            "bytecodeOffset": "0x1b0dc03",
+            "bytecodeHex": "0d 01 d0 39 03 01 04 13 01 3b 03 f7 06"
+          },
+          {
+            "name": "CommandLoginOut",
+            "stringOffset": "0x1b0b538",
+            "value": 2,
+            "bytecodeOffset": "0x1b0dc10",
+            "bytecodeHex": "0d 02 d0 39 03 02 08 13 02 3b 03 f7 0a"
+          },
+          {
+            "name": "CommandUpdateSelfUid",
+            "stringOffset": "0x1b0b554",
+            "value": 3,
+            "bytecodeOffset": "0x1b0dc1d",
+            "bytecodeHex": "0d 03 d0 39 03 03 0c 13 03 3b 03 f7 0e"
+          },
+          {
+            "name": "CommandStartCall",
+            "stringOffset": "0x1b0b574",
+            "value": 4,
+            "bytecodeOffset": "0x1b0dc2a",
+            "bytecodeHex": "0d 04 d0 39 03 04 10 13 04 3b 03 f7 12"
+          },
+          {
+            "name": "CommandAccept",
+            "stringOffset": "0x1b0b590",
+            "value": 5,
+            "bytecodeOffset": "0x1b0dc37",
+            "bytecodeHex": "0d 05 d0 39 03 05 14 13 05 3b 03 f7 16"
+          },
+          {
+            "name": "CommandIgnore",
+            "stringOffset": "0x1b0b5ac",
+            "value": 6,
+            "bytecodeOffset": "0x1b0dc44",
+            "bytecodeHex": "0d 06 d0 39 03 06 18 13 06 3b 03 f7 1a"
+          },
+          {
+            "name": "CommandInvite",
+            "stringOffset": "0x1b0b5c8",
+            "value": 7,
+            "bytecodeOffset": "0x1b0dc51",
+            "bytecodeHex": "0d 07 d0 39 03 07 1c 13 07 3b 03 f7 1e"
+          },
+          {
+            "name": "CommandQuit",
+            "stringOffset": "0x1b0b5e4",
+            "value": 8,
+            "bytecodeOffset": "0x1b0dc5e",
+            "bytecodeHex": "0d 08 d0 39 03 08 20 13 08 3b 03 f7 22"
+          },
+          {
+            "name": "CommandReject",
+            "stringOffset": "0x1b0b5fc",
+            "value": 9,
+            "bytecodeOffset": "0x1b0dc6b",
+            "bytecodeHex": "0d 09 d0 39 03 09 24 13 09 3b 03 f7 26"
+          },
+          {
+            "name": "CommandClose",
+            "stringOffset": "0x1b0b618",
+            "value": 10,
+            "bytecodeOffset": "0x1b0dc78",
+            "bytecodeHex": "0d 0a d0 39 03 0a 28 13 0a 3b 03 f7 2a"
+          },
+          {
+            "name": "CommandClearRoom",
+            "stringOffset": "0x1b0b630",
+            "value": 11,
+            "bytecodeOffset": "0x1b0dc85",
+            "bytecodeHex": "0d 0b d0 39 03 0b 2c 13 0b 3b 03 f7 2e"
+          },
+          {
+            "name": "CommandKickOutUsers",
+            "stringOffset": "0x1b0b64c",
+            "value": 12,
+            "bytecodeOffset": "0x1b0dc92",
+            "bytecodeHex": "0d 0c d0 39 03 0c 30 13 0c 3b 03 f7 32"
+          },
+          {
+            "name": "CommandGetRoomInfo",
+            "stringOffset": "0x1b0b66c",
+            "value": 13,
+            "bytecodeOffset": "0x1b0dc9f",
+            "bytecodeHex": "0d 0d d0 39 03 0d 34 13 0d 3b 03 f7 36"
+          },
+          {
+            "name": "CommandGetChattingRoomId",
+            "stringOffset": "0x1b0b68c",
+            "value": 14,
+            "bytecodeOffset": "0x1b0dcac",
+            "bytecodeHex": "0d 0e d0 39 03 0e 38 13 0e 3b 03 f7 3a"
+          }
+        ]
+      }
+    },
+    "validatedAtUTC": "2026-10-05T12:17:53.819032+00:00"
+  },
+  "controlCommandReplies": {
+    "8": {
+      "value": [
+        "ret:int32",
+        "empty:string"
+      ],
+      "evidence": "Quit native call0x4e06c4; int0/type0 at0x4e06dc; type2 emptystring0x4e06ec; vector48bytes; MessageSend8 at0x4e0770"
+    },
+    "9": {
+      "value": [
+        "ret:int32",
+        "empty:string"
+      ],
+      "evidence": "Reject native call0x4e0afc; type0 at0x4e0b1c; type2 at0x4e0b2c; MessageSend9 at0x4e0bb0"
+    },
+    "10": {
+      "value": [
+        "ret:int32",
+        "empty:string"
+      ],
+      "evidence": "Close native call0x4e0e24; type0 at0x4e0e4c; type2 at0x4e0e5c; MessageSend10 at0x4e0ee0"
+    },
+    "4": {
+      "value": [
+        "ret:int32",
+        "message:string"
+      ],
+      "successPath": "native call at0x4def24; CallArg type0+ret0x4def30, type2+emptystring0x4def40; MessageSend4 at0x4defc4",
+      "jsonParseErrorPath": "MessageSend4 at0x4dbb88 with parse error code and string json parse error"
+    }
+  },
+  "guiHangupFlow": {
+    "evidence": "/tmp/qq-avsdk-static-nuqq4iv7/gui-quit-decoded.txt",
+    "majorBytecodeArrayFileOffset": "0x4606647",
+    "conditions": [
+      {
+        "if": "avStore.isGroupCall || avStore.isScreenShare",
+        "nativeCommand": 8,
+        "params": [
+          "sceneId",
+          "params?.quitReason ?? QRTCQuitReasonNone(0)"
+        ],
+        "bytecodeOffsets": [
+          "0x54",
+          "0x62",
+          "0x7a",
+          "0x95",
+          "0xab"
+        ]
+      },
+      {
+        "else": "ordinary private audio/video call",
+        "nativeCommand": 10,
+        "params": [
+          "sceneId",
+          "peerUid from members excluding self",
+          "params?.closeReason ?? QRTCSelfCloseReasonDefault(0)"
+        ],
+        "bytecodeOffsets": [
+          "0x11b",
+          "0x14d",
+          "0x16d",
+          "0x175"
+        ]
+      }
+    ],
+    "warning": "Do not use cmd8 as generic ordinary-private-call hangup. ret0 is native invocation acceptance, not proof remote closed."
+  },
+  "startCallGuiReconstruction": {
+    "runtimeTested": false,
+    "scope": "ordinary private audio, no temporary-enterprise or screen-share or OpenSDK options",
+    "command": 4,
+    "nativeParam": [
+      "JSON.stringify(payload)"
+    ],
+    "payloadTemplate": {
+      "scene_id": 1,
+      "self_uid": "<logged-in-self-UID>",
+      "invite_count": 1,
+      "invite_uids": [
+        "<peer-UID>"
+      ],
+      "sub_business_type": 1,
+      "invite_reason": 0,
+      "relation_id": "<peer-UIN-as-string>",
+      "invite_original": 0,
+      "use_ntrtc_dsp": false,
+      "ntrtc_ai_denoise_update_model": "",
+      "c2c_extend_params": {},
+      "opensdk_enter_room_params": {}
+    },
+    "provenance": [
+      {
+        "file": "gui-sceneinfo-decoded.txt",
+        "majorBytecodeArray": "0x45c2c8a",
+        "fact": "ordinary private scene=SceneFriend1; relationId=peerMember.uin (fallback empty string). Group scene3 uses groupInfo.groupCode."
+      },
+      {
+        "file": "gui-startcall-decoded.txt",
+        "majorBytecodeArray": "0x4604891",
+        "fact": "StartCall base params sceneId/selfUid/peerUidList/relationId/inviteCount and DSP options. inviteCount is list length."
+      },
+      {
+        "file": "gui-startparams-decoded.txt",
+        "majorBytecodeArray": "0x46070e3",
+        "fact": "default subBusinessType is exported uQ[readonly(8,31680)]; Video branch uses uQ.Video, screenShare uses uQ.Share; ordinary private inviteOriginal=gH.Normal."
+      },
+      {
+        "file": "gui-business-enum.txt",
+        "majorBytecodeArray": "0x226f2f1",
+        "fact": "same readonly(8,31680) enum key explicitly assigned1; Video2, Share3. The read-only key string itself was not materialized, so numeric1 is proven by identity rather than guessed spelling."
+      },
+      {
+        "file": "gui-inviteoriginal-enum.txt",
+        "majorBytecodeArray": "0x1b095f6",
+        "fact": "Normal0,P2PAV1,CallTabCorner2,GroupAV3,ShareScreen4,P2PShareScreen5"
+      },
+      {
+        "file": "gui-invitereason-enum.txt",
+        "majorBytecodeArray": "0x1b09cbb",
+        "fact": "QRTCRecvInviteReasonNormal0,SwitchFromP2PAV1,SwitchFromP2PShare2,DoubleNormalToDoubleMeeting3"
+      },
+      {
+        "file": "gui-callstore-constructor.txt",
+        "majorBytecodeArray": "0x4604415",
+        "fact": "useNtrtcDsp=false; ntrtcAIDenoiseUpdateModel=empty-string. App may subsequently replace AI model path from config."
+      },
+      {
+        "file": "gui-startcall-json-converter.txt",
+        "majorBytecodeArray": "0x44174bc",
+        "fact": "Maps camelCase fields into snake_case, defaults inviteReason to Normal0, constructs c2c_extend_params and opensdk_enter_room_params unconditionally using optional chaining, then JSON.stringify. With absent extensions these are empty objects. Undefined audio_scene and trtc_enc_param omitted."
+      }
+    ],
+    "constraints": [
+      "Requires proven target UID/UIN association; must not interchange identifiers.",
+      "Fingerprint applies only to official3.2.34-53644 ARM64 full package above.",
+      "No live QQ invocation was made; this is GUI-equivalent serialized payload, not proof server accepts the call.",
+      "No runtime replacement of current3.2.30 library authorized by this evidence."
+    ]
+  },
+  "staticV8Parser": {
+    "script": "/tmp/qq-avsdk-static-nuqq4iv7/parse-cache.py",
+    "disassembler": "/tmp/qq-avsdk-static-nuqq4iv7/disassemble-cache.py",
+    "sources": [
+      "https://raw.githubusercontent.com/v8/v8/14.4.258.16/src/snapshot/deserializer.cc",
+      "https://raw.githubusercontent.com/v8/v8/14.4.258.16/src/snapshot/serializer-deserializer.h",
+      "https://raw.githubusercontent.com/v8/v8/14.4.258.16/src/snapshot/snapshot-source-sink.h"
+    ],
+    "method": "Pure Python byte reader; validates serialized object slot counts, resolves backreferences/hot references into string constants, never executes cache or native code.",
+    "parsedCaches": [
+      {
+        "payloadStart": "0x43fcd20",
+        "objectCount": 3030,
+        "end": "0x441ae05"
+      },
+      {
+        "payloadStart": "0x459b0e0",
+        "objectCount": 19896,
+        "end": "0x4663995"
+      },
+      {
+        "payloadStart": "0x1b08eb0",
+        "objectCount": 201,
+        "end": "0x1b0aad7"
+      },
+      {
+        "payloadStart": "0x226d7c0",
+        "objectCount": 291,
+        "end": "0x226fb80"
+      }
+    ]
+  },
+  "groupJoinGuiReconstruction": {
+    "runtimeTested": false,
+    "activeCheck": {
+      "bytecodeArray": "0x59c160e",
+      "source": "gui-group-active-check.txt",
+      "expression": "Boolean(callData[groupCode]?.onlineCount)"
+    },
+    "nativeNotifications": {
+      "rendererAPI": "ntApi.nodeIKernelAVSDKListener.onGroupAudioMemNumChange(callback)",
+      "rendererEventShape": "{notifyInfo: ...}",
+      "notifyInfoFieldsReadByGUI": [
+        "group_code",
+        "onlineCount",
+        "memberUins",
+        "businessType",
+        "isNativeTimeout"
+      ],
+      "enablingService": "ntApi.nodeIKernelAVSDKService.allowAlbumNotify()",
+      "enablingArgs": [],
+      "evidence": [
+        "gui-group-bind.txt",
+        "gui-group-listener-shape.txt",
+        "gui-group-members-notify.txt",
+        "gui-group-horseman.txt"
+      ],
+      "platformGuard": "GUI bind first tests imported platform helper, log says not mac x64, skip bind; the helper itself has not been resolved. Do not assume GUI listener binding runs on current Linux. Native method availability needs inspection/controlled testing.",
+      "nativeCallback": "session.getAVSDKService().addKernelAVSDKListener({onGroupAudioMemNumChange(notifyInfo){...}})",
+      "argumentNames": [
+        "notifyInfo"
+      ],
+      "rendererWrapping": "Native listener arg0 is notifyInfo itself; generated IPC declaration wraps named positional arguments as renderer event {notifyInfo}. Do not expect the native arg0 to itself contain notifyInfo.",
+      "nativeServiceEvidence": "kernel-avsdk-declarations.json: service getter table0x80e8c7 maps nodeIKernelAVSDKService -> getAVSDKService; methods0x82809b includesaddKernelAVSDKListener,allowAlbumNotify; listener table0x83b1bb onGroupAudioMemNumChange has parameterNames=[notifyInfo].",
+      "nativeTypeEvidence": {
+        "wrapperPath": "/tmp/qq-avsdk-static-nuqq4iv7/extracted/opt/QQ/resources/app/wrapper.node",
+        "wrapperSha256": "8f17c51f111f33efcff42aae11850436500d7ca7d0f82935db0b826cb1459b4a",
+        "conversionFunction": "0x1a4d6f4",
+        "fields": {
+          "group_code": {
+            "type": "string",
+            "nativeSource": "8-byte integer converted by string helper",
+            "napiCall": "napi_create_string_utf8 at0x1a4d754"
+          },
+          "onlineCount": {
+            "type": "number/int32",
+            "napiCall": "napi_create_int32 at0x1a4d790"
+          },
+          "expireTimestamp": {
+            "type": "number/int32",
+            "napiCall": "napi_create_int32 at0x1a4d7bc",
+            "units": "unverified; preserve raw"
+          },
+          "memberUins": {
+            "type": "string[]",
+            "nativeSource": "vector of 8-byte integers converted elementwise by string helper",
+            "napiCall": "array allocation0x1a4d7e8; napi_create_string_utf8 at0x1a4d860; napi_set_element0x1a4d81c"
+          },
+          "seq": {
+            "type": "string",
+            "nativeSource": "8-byte integer converted by string helper",
+            "napiCall": "napi_create_string_utf8 at0x1a4d8c4",
+            "semantics": "sequence identifier; no ordering rules inferred"
+          },
+          "businessType": {
+            "type": "number/int32",
+            "napiCall": "napi_create_int32 at0x1a4d900"
+          },
+          "isNativeTimeout": {
+            "type": "boolean",
+            "napiCall": "napi_get_boolean at0x1a4d92c"
+          }
+        },
+        "callbackDispatch": "wrapper0x1a4c32c calls conversion0x1a4d6f4; looks up onGroupAudioMemNumChange0x1a4c374 then calls napi_call_function with argc1",
+        "files": [
+          "wrapper-group-notify-conversion.asm",
+          "wrapper-group-callback-invoke.asm"
+        ]
+      },
+      "businessTypeEnum": {
+        "QRTCRoomTypeAudio": 1,
+        "QRTCRoomTypeVideo": 2,
+        "QRTCRoomTypeScreenShare": 3,
+        "evidence": "gui-roomtype-enum.txt BytecodeArray0x226ea5d",
+        "zeroCompatibility": "GUI evaluates notifyInfo.businessType || QRTCRoomTypeAudio before getRoomType, so numeric0 is treated as Audio1 for presentation; do not mistake seq for a room identifier."
+      }
+    },
+    "joinPath": [
+      {
+        "source": "gui-call-entry-decoded.txt",
+        "bytecodeArray": "0x566e88a",
+        "step": "When group code exists and isGroupInCall(groupCode) truthy, select joinCall using current group callData."
+      },
+      {
+        "source": "gui-joincall-decoded.txt",
+        "bytecodeArray": "0x5668e5a",
+        "step": "joinCall checks existing/conflicting call and invokes onJoin(groupInfo,selfInfo)."
+      },
+      {
+        "source": "gui-audio-onjoin.txt",
+        "bytecodeArray": "0x566bb48",
+        "step": "Audio onJoin raises AV window with {groupInfo,type:audio,userList:[selfInfo],callType:calling}. Array literal puts selfInfo at0, no target invitees."
+      },
+      {
+        "source": "gui-openparams-decoded.txt",
+        "bytecodeArray": "0x464f547",
+        "step": "AV window setGroupInfo, initCallingMembers(userList), then callStore.startCall()."
+      },
+      {
+        "source": "gui-startcall-decoded.txt",
+        "bytecodeArray": "0x4604891",
+        "step": "Build inviteUidList from membersExcludeMe; with only self this is empty and inviteCount0."
+      },
+      {
+        "source": "gui-startgroupcall.txt",
+        "bytecodeArray": "0x460557c",
+        "step": "startGroupCall delegates qrtc.startCall(getStartCallParams(params)); group getStartCallParams sets inviteOriginal=GroupAV3."
+      }
+    ],
+    "payloadTemplate": {
+      "scene_id": 3,
+      "self_uid": "<logged-in-self-UID>",
+      "invite_count": 0,
+      "invite_uids": [],
+      "sub_business_type": 1,
+      "invite_reason": 0,
+      "relation_id": "<group-code-as-string>",
+      "invite_original": 3,
+      "use_ntrtc_dsp": false,
+      "ntrtc_ai_denoise_update_model": "",
+      "c2c_extend_params": {},
+      "opensdk_enter_room_params": {}
+    },
+    "nativeCommand": 4,
+    "leave": {
+      "nativeCommand": 8,
+      "params": [
+        3,
+        0
+      ],
+      "meaning": "scene3, QRTCQuitReasonNone0; wait for native receipt and state callbacks"
+    },
+    "readOnlyRoomProbe": {
+      "nativeCommand": 13,
+      "params": [
+        3,
+        "<group-code-as-string>"
+      ],
+      "resultCallback": 20010,
+      "valueShape": [
+        "json-string",
+        "ret:int32"
+      ],
+      "purpose": "Fresh pre-join room snapshot can strengthen online-count guard; ret0 alone or empty/malformed JSON is not active-room proof. Native room_json has scene_id,relation_id,user_num,user_list."
+    },
+    "membershipSemantics": {
+      "notificationMemberUins": "GUI reads memberUins; do not equate with full current UID snapshot without proof. Map UIN/UID with native validated mapping.",
+      "nativeParticipantUIDs": "20010 complete successful room snapshot user_list[].uid and account_type;20008/20009 incremental events. No guessed UIN mapping."
+    },
+    "criticalLimitation": "There is no expectedRoomId or onlyJoin flag in this GUI/native StartCall JSON. Active notification or GetRoomInfo pre-check can race with room ending. Thus this API cannot provide an atomic guarantee that joining a just-ended room will never create a new call; no further lower-level join-existing-only path has been identified. Do not claim absolute join-only semantics.",
+    "safeImplementationBoundary": "Require recent validated activity for the exact group (prefer fresh successful correlated room query), inviteCount0/empty UID list, refuse missing/stale/zero-member state. Treat native receipt0 as dispatched and wait for correlated actual entry callbacks. Explain remaining race before a real group test."
+  },
+  "finalEvidenceUpdatedAtUTC": "2026-10-05T12:36:41.559184+00:00",
+  "nativeDiagnostics": {
+    "20050": {
+      "method": "QRTCServiceInterfaceWrapper::LogSend(const std::string&)",
+      "address": "0x4f0f70",
+      "sendCommandAddress": "0x4f0fd8"
+    },
+    "120043": {
+      "method": "QRTCServiceInterfaceWrapper::AlertMessage(const std::string&)",
+      "address": "0x4f107c",
+      "sendCommandAddress": "0x4f10e0"
+    },
+    "consumerRule": "Diagnostics only; never initiate login/relogin from these messages. Do not expose raw strings."
+  },
+  "guiInitialization": {
+    "build": "53644",
+    "loginGUI": "major cache 0x23f0920 object485@0x23f4ec0; adapter cache0x43fcd20 object411@0x4401215",
+    "loginParams": [
+      "selfUid",
+      "selfUin",
+      "",
+      "QQ user-data root",
+      ""
+    ],
+    "nativeIdentityBranch": "Login0x4d8720: third string nonempty at4d8b2c branches4d8bd8→SDKlogin using that string; empty branches4d8b6c→SDKlogin using selfUid. Do not repeat UIN as selfAvTinyid.",
+    "dataRoot": "GUI osApi getUserDataDir returns USER_DATA_DIR, derived path.join(app.getPath(appData),app.getName()); NapCat core.dataPath follows its actual native data root including isolated copies.",
+    "sdkInfo": {
+      "command": 57,
+      "params": [
+        "1.0.1230"
+      ],
+      "nativeAddress": "0x4f118c",
+      "gui": "object1550@0x440b200, CommandSetSDKInfo(arg0 || default)",
+      "acknowledgement": "No native ACK; submission only."
+    },
+    "transportOutputs": [
+      55,
+      20000,
+      20001,
+      20002,
+      120003
+    ],
+    "transportGUI": "object149@0x43fe049 forwards value[0],value[1] through setActionFromAVSDK. Native binding accepts base64 string; GUI IPC uses TextEncoder, not base64 decoding.",
+    "messageListenerOrder": "GUI object192@0x43fe8f0 createEmbedEle→initMessage→appendChild; install listener before insertion."
+  },
+  "liveValidation20261005": {
+    "linuxPrivate": "Incoming call accepted; native room entry observed; tester heard injected tone without unexpected noise; remote speech produced changing captured levels; explicit hangup submitted. Prior native login loop removed.",
+    "linuxGroup": "StartCall ACK0 received, then OnConnectTimeOut20005 and OnError20003 after approximately27 seconds. Not connected, not accepted as working. OnError payload was shape-only and exact message cannot be recovered.",
+    "remaining": "Re-test after GUI Login identity/data-root corrections, complete transport forwarding and startup listener ordering. Windows/macOS live tests pending."
+  }
+}

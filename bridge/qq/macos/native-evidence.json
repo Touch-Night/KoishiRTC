@@ -1,0 +1,250 @@
+{
+  "formatVersion": 1,
+  "auditedAt": "2026-10-05",
+  "runtimeTested": false,
+  "platform": "darwin",
+  "qqVersion": "7.0.2-53644",
+  "buildVersion": "53644",
+  "electron": "40.0.0",
+  "source": {
+    "downloadPage": "https://im.qq.com/macqq/",
+    "downloadConfiguration": "https://qq-web.cdn-go.cn/im.qq.com_new/latest/rainbow/pcConfig.json",
+    "dmgURL": "https://qqdl.gtimg.cn/qqfile/QQNTV2/9.9.36/release/837fcb63/QQ_7.0.2_260924_01.dmg",
+    "downloadUsesOfficialURLSignAPI": true,
+    "dmgSHA256": "d270b78f0b210532637076532a883dc8659851b6daa92451983985ab9f3216f0"
+  },
+  "library": {
+    "relativePath": "Contents/Resources/app/avsdk/libAVSDKPlugin.dylib",
+    "sha256": "8dcddc9ade6120ba1fecb7f8961d401dded8c4881ce3e12b5a023465089c64c6",
+    "architectures": [
+      "x64",
+      "arm64"
+    ],
+    "requiredExports": [
+      "PPP_GetInterface",
+      "PPP_InitializeModule",
+      "PPP_ShutdownModule"
+    ],
+    "rpath": "@loader_path",
+    "bundledDependencies": [
+      "TXFFmpeg.framework/TXFFmpeg",
+      "TXSoundTouch.framework/TXSoundTouch"
+    ]
+  },
+  "method": "Read-only DMG extraction; Mach-O sections, LC_FUNCTION_STARTS and command table decoded; Capstone disassembly checked for native value types and callback IDs. Major.node V8 caches parsed as bytes with the shared static parser, never executed. No QQ process or dylib was loaded.",
+  "arm64": {
+    "sliceSHA256": "bf3db2a8840c129a65245213547dc9b66d7dc1ddecac387107298782d5cc2b58",
+    "callCpp": "0x19ec4",
+    "commandTable": "0x18ca4b0",
+    "messageSend": "0x61ca8",
+    "commands": {
+      "1": "0x3d650",
+      "4": "0x3fb14",
+      "5": "0x42304",
+      "8": "0x4309c",
+      "9": "0x4355c",
+      "10": "0x438f4",
+      "13": "0x442ac",
+      "55": "0x3d1b8",
+      "102": "0x48964",
+      "103": "0x3dd3c"
+    },
+    "callbacks": {
+      "20004": "0xb894",
+      "20006": "0xbd7c",
+      "20008": "0xc600",
+      "20009": "0xc8f8",
+      "20010": "0xcc18",
+      "20011": "0xd3d4",
+      "20018": "0xebf0",
+      "20019": "0xee04",
+      "20022": "0xf3a8",
+      "20061": "0x48b98"
+    }
+  },
+  "x64": {
+    "sliceSHA256": "76e4fa61a9612a331b700144447c8f8efdc5420bbe96cb337ec2e3ff3dfcfa25",
+    "callCpp": "0x19bd8",
+    "commandTable": "0x1e6dd40",
+    "messageSend": "0x64320",
+    "commands": {
+      "1": "0x3e934",
+      "4": "0x40dc4",
+      "5": "0x436b2",
+      "8": "0x4458a",
+      "9": "0x44a4c",
+      "10": "0x44dfe",
+      "13": "0x4583c",
+      "55": "0x3e41c",
+      "102": "0x4a1fe",
+      "103": "0x3f09c"
+    },
+    "callbacks": {
+      "20008": "0xd7c8",
+      "20009": "0xdb18",
+      "20010": "0xdeb4",
+      "20011": "0xe7b6",
+      "20018": "0x10244",
+      "20019": "0x1044e",
+      "20022": "0x10a32",
+      "20061": "0x4a544"
+    }
+  },
+  "commandArguments": {
+    "1": [
+      "selfUid:string",
+      "uin:string",
+      "optionalReplaceUid:string",
+      "databasePath:string",
+      "machineId:string"
+    ],
+    "4": [
+      "JSON.stringify(startCallPayload)"
+    ],
+    "5": [
+      "scene:int",
+      "peerUid:string",
+      "inviteUids:string[]",
+      "businessType:int",
+      "relationId:string",
+      "useNtrtcDSP:boolean",
+      "ntrtcAIDenoiseUpdateModel:string"
+    ],
+    "8": [
+      "scene:int",
+      "reason:int"
+    ],
+    "9": [
+      "scene:int",
+      "peerUid:string",
+      "rejectReason:int"
+    ],
+    "10": [
+      "scene:int",
+      "peerUid:string",
+      "closeReason:int"
+    ],
+    "13": [
+      "scene:int",
+      "relationId:string"
+    ],
+    "55": [
+      "cmd:int",
+      "data:string"
+    ],
+    "102": [
+      "inputDeviceID:int",
+      "outputDeviceID:int"
+    ],
+    "103": []
+  },
+  "callbackShapes": {
+    "20008": [
+      "uid:string",
+      "accountType:int",
+      "isRoomCreator:int",
+      "field3:int",
+      "field4:int",
+      "field5:int",
+      "field6:string"
+    ],
+    "20009": [
+      "quitReason:int",
+      "uid:string",
+      "accountType:int",
+      "isRoomCreator:int",
+      "field4:int",
+      "field5:int",
+      "field6:int",
+      "field7:string",
+      "field8:string"
+    ],
+    "20010": [
+      "JSON:string",
+      "result:int"
+    ],
+    "20011": [
+      "scene:int",
+      "relationId:string",
+      "roomId:string"
+    ],
+    "20018": [
+      "reason:int"
+    ],
+    "20019": [],
+    "20022": [
+      "closeReason:int",
+      "errorCode:int",
+      "isUserEventExited:int",
+      "extension1:int",
+      "extension2:string",
+      "extension3:string"
+    ],
+    "20061": [
+      "outputIDs:int[]",
+      "outputNames:string[]",
+      "outputDetails:string[]",
+      "inputIDs:int[]",
+      "inputNames:string[]",
+      "inputDetails:string[]",
+      "selectedOutputID:int",
+      "selectedInputID:int",
+      "defaultOutputID:int",
+      "defaultInputID:int"
+    ]
+  },
+  "callbackNotes": {
+    "20010": "JSON keys and types: relation_id string, scene_id int, room_status int, user_num int, user_list objects with uid string and account_type int. Failures use empty JSON plus result.",
+    "20022": "Extensions are default -1, empty, empty; error907 may fill them. Semantic extension names are not inferred.",
+    "102": "Reply is unconditionally [1, empty-string], not a successful selection proof. Audio router waits for 20061 selected IDs.",
+    "20061": "Both slices construct 10 CallArgs of 24 bytes; arrays are typed3 int[]/typed4 string[] and selected/default IDs typed0 int. Native log confirms selected/default field meanings. Fields2/5 are opaque additional device string arrays, not interpreted as identifiers. Intel construction verified at0x4a9ae..0x4ab2d; ARM64 at0x48f18..0x4904c."
+  },
+  "guiEvidence": {
+    "majorNodeSHA256": "703514aceeadfb980d8744331b0826ebe3ab6d278fb07015f056c1ce5ac3fedb",
+    "arm64CacheProtocol": "0xb018338",
+    "arm64CacheAVStore": "0xaa9ab98",
+    "functions": {
+      "getStartCallParams": "0xab05229",
+      "startCall": "0xab029d7",
+      "sceneInfo": "0xaac267f",
+      "quit": "0xab0478d",
+      "startCallJSON": "0xb032ad4",
+      "audioDeviceUpdate": "0xb02a433",
+      "selectAudioDevice": "0xb0293b8"
+    },
+    "comparison": "getStartCallParams, sceneInfo, quit and startCall JSON converter have byte-identical instructions and equivalent constant pools to official Linux3.2.34-53644 after serialized object indices are normalized. startCall differs only at report-service import context slot67 vs68.",
+    "ordinaryPrivateAudio": {
+      "scene_id": 1,
+      "sub_business_type": 1,
+      "invite_reason": 0,
+      "invite_original": 0,
+      "invite_count": 1
+    },
+    "existingGroupAudio": {
+      "scene_id": 3,
+      "sub_business_type": 1,
+      "invite_reason": 0,
+      "invite_original": 3,
+      "invite_count": 0,
+      "invite_uids": []
+    },
+    "groupJoinLimitation": "Shared StartCall path has no atomic only-join-existing-room flag. A fresh active-room precheck can race with termination; joining can create a room in that race."
+  },
+  "limitations": [
+    "No macOS execution, signing, NapCat login, TCC permission, private/group call or real audio test was performed.",
+    "Exact QQ build/library hash and runtime architecture must match before enabling the profile.",
+    "CoreAudio selection callback is local routing evidence only, not remote audio delivery proof.",
+    "Native group notification availability is checked at runtime; undefined UID/UIN mappings must never be guessed."
+  ],
+  "nativeSessionServices": {
+    "wrapperSHA256": "433924270b4b5790b9bc2d6e57f11dc65ee09c40a031c25e3a76f3b401f9bbc6",
+    "presentNames": [
+      "getAVSDKService",
+      "addKernelAVSDKListener",
+      "allowAlbumNotify",
+      "onGroupAudioMemNumChange",
+      "setActionFromAVSDK"
+    ],
+    "verification": "Names exist in the actual Mac native wrapper; successful registration/nonnull service and callback payload validation remain runtime prerequisites, not assumed from names."
+  }
+}

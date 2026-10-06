@@ -1,0 +1,6 @@
+psutil>=5.9,<8
+pywinauto>=0.6.8,<0.7; sys_platform == "win32"
+pyobjc-framework-ApplicationServices>=10,<13; sys_platform == "darwin"
+pyobjc-framework-Cocoa>=10,<13; sys_platform == "darwin"
+# Linux: install the distribution's python3-pyatspi package and create the venv
+# with --system-site-packages. AT-SPI requires the logged-in graphical session.

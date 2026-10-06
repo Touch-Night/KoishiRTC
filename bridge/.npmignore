@@ -1,0 +1,15 @@
+**/runtime/
+**/logs/
+**/__pycache__/
+**/*.pyc
+**/*.so
+**/*.so.*
+**/*.token
+**/.env
+**/*.session
+**/*.session-*
+**/*.sqlite
+**/*.sqlite-*
+**/*.sqlite3
+**/.venv/
+**/venv/

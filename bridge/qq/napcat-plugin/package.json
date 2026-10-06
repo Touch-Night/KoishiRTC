@@ -1,0 +1,11 @@
+{
+  "name": "napcat-plugin-koishi-rtc-qq",
+  "plugin": "Koishi RTC QQ 控制桥",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "index.mjs",
+  "description": "Authenticated QQ call state, capability diagnostics and explicit call controls",
+  "author": "Koishi RTC contributors; based on ClaudiaGardner/maibot-qq-voice-call",
+  "license": "GPL-3.0-only",
+  "napcat": { "tags": ["工具", "机器人"], "minVersion": "4.14.0" }
+}

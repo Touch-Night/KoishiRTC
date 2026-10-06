@@ -1,0 +1,5 @@
+# Verified with CPython 3.12 on Linux ARM64; native wheels are required by setup.py.
+py-tgcalls==3.0.0
+ntgcalls==3.0.1
+Telethon==1.45.0
+Pillow==12.3.0

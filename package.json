@@ -1,0 +1,110 @@
+{
+  "name": "koishi-plugin-rtc-bridge",
+  "version": "0.1.0",
+  "description": "Reusable cross-platform real-time calls, audio and video bridges for Koishi",
+  "type": "module",
+  "main": "dist/index.cjs",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./core": {
+      "types": "./dist/core.d.ts",
+      "import": "./dist/core.js",
+      "require": "./dist/core.cjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "bridge",
+    "docs",
+    "examples",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
+    "!**/runtime/**",
+    "!**/logs/**",
+    "!**/__pycache__/**",
+    "!**/*.pyc",
+    "!**/*.so",
+    "!**/*.so.*",
+    "!**/*.token",
+    "!**/.env"
+  ],
+  "license": "GPL-3.0-only",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "build": "pkgroll --sourcemap && node scripts/build-client.mjs",
+    "check": "tsc --noEmit && tsc -p examples/tsconfig.check.json",
+    "test": "tsx --test test/*.test.ts examples/*.test.mjs bridge/qq/tests/*.test.mjs bridge/qq/windows/*.test.mjs bridge/qq/macos/*.test.* bridge/desktop/*.test.mjs",
+    "prepublishOnly": "npm run check && npm test && npm run build",
+    "bridge": "node bridge/daemon.mjs",
+    "dev:console": "node scripts/run-local-console.cjs",
+    "package:portable": "node scripts/package-portable.mjs"
+  },
+  "peerDependencies": {
+    "koishi": "^4.18.11"
+  },
+  "dependencies": {
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@koishijs/client": "^5.30.11",
+    "@types/node": "^22.7.5",
+    "@types/ws": "^8.18.1",
+    "@vitejs/plugin-vue": "^5.2.4",
+    "pkgroll": "^2.6.1",
+    "puppeteer-core": "^25.12.0",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.3",
+    "vite": "^6.4.3",
+    "vue": "^3.5.43"
+  },
+  "keywords": [
+    "koishi",
+    "rtc",
+    "voice",
+    "calls",
+    "qq",
+    "discord",
+    "telegram",
+    "wechat",
+    "feishu",
+    "tencent-meeting",
+    "kook",
+    "livekit",
+    "video"
+  ],
+  "koishi": {
+    "description": {
+      "zh": "跨平台实时通话服务：通话控制、连续音频、设备诊断与插件复用"
+    },
+    "service": {
+      "implements": [
+        "rtc"
+      ],
+      "optional": [
+        "console"
+      ]
+    }
+  },
+  "optionalDependencies": {
+    "@discordjs/voice": "^0.19.2",
+    "@koishijs/plugin-auth": "^4.1.7",
+    "@koishijs/plugin-console": "^5.30.10",
+    "@koishijs/plugin-database-sqlite": "^4.7.0",
+    "@koishijs/plugin-server": "^3.2.9",
+    "@livekit/rtc-node": "^1.1.0",
+    "discord.js": "^14.27.0",
+    "koishi": "^4.18.11",
+    "livekit-server-sdk": "^2.19.1",
+    "opusscript": "^0.1.1",
+    "sharp": "^0.35.5"
+  }
+}

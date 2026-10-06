@@ -1,0 +1,178 @@
+{
+  "formatVersion": 1,
+  "platform": "tencent-meeting",
+  "os": "win32",
+  "calibrated": false,
+  "label": "腾讯会议语音",
+  "notes": [
+    "Calibration required: these are explicit starter workflows, not a declaration that a particular client build was tested.",
+    "Preflight opens settings, reads the account and both audio device selections, and closes settings before call control. Edit these settings selectors to the actual accessibility tree; no audio setting is changed automatically.",
+    "Exact target identity must be exposed. Do not substitute a non-unique contact nickname for an account ID; inspect the contact detail or meeting ID view and scope selectors appropriately.",
+    "Client settings may expose names in title, description or value depending on platform. The inspector reports all three.",
+    "While connected, account and routes are bound to the previously checked process/configuration. Manual changes to hidden settings cannot be detected continuously.",
+    "Join button before opening the dialog and final join button are scoped to different windows. Calibrate these exact window titles; meeting IDs may be formatted with spaces by the client and must match its displayed form."
+  ],
+  "identity": {
+    "role": "Text",
+    "name": "{self}"
+  },
+  "target": {
+    "role": "Text",
+    "name": "{target}"
+  },
+  "audioInput": {
+    "role": "ComboBox",
+    "name": "{input}"
+  },
+  "audioOutput": {
+    "role": "ComboBox",
+    "name": "{output}"
+  },
+  "states": {
+    "idle": {
+      "all": [
+        {
+          "role": "Window",
+          "name": "腾讯会议"
+        }
+      ],
+      "none": [
+        {
+          "role": "Text",
+          "name": "会议中"
+        },
+        {
+          "role": "Button",
+          "name": "接听"
+        },
+        {
+          "role": "Button",
+          "name": "离开会议"
+        }
+      ]
+    },
+    "connected": [
+      {
+        "role": "Text",
+        "name": "会议中"
+      }
+    ],
+    "dialing": [
+      {
+        "role": "Text",
+        "name": "正在连接"
+      }
+    ]
+  },
+  "actions": {
+    "join": {
+      "kind": "group",
+      "steps": [
+        {
+          "kind": "invoke",
+          "selector": {
+            "role": "Button",
+            "name": "加入会议",
+            "ancestor": {
+              "role": "Window",
+              "name": "腾讯会议"
+            }
+          }
+        },
+        {
+          "kind": "setValue",
+          "selector": {
+            "role": "Edit",
+            "name": "会议号"
+          },
+          "value": "{target}"
+        },
+        {
+          "kind": "invoke",
+          "selector": {
+            "role": "Button",
+            "name": "加入会议",
+            "ancestor": {
+              "role": "Window",
+              "name": "加入会议"
+            }
+          },
+          "commit": true
+        }
+      ],
+      "target": {
+        "role": "Edit",
+        "name": "会议号",
+        "value": "{target}"
+      }
+    },
+    "hangup": {
+      "kind": "group",
+      "steps": [
+        {
+          "kind": "invoke",
+          "selector": {
+            "role": "Button",
+            "name": "离开会议"
+          },
+          "commit": true
+        }
+      ]
+    }
+  },
+  "evidenceMode": "preflight",
+  "preflight": [
+    {
+      "kind": "invoke",
+      "selector": {
+        "role": "Button",
+        "name": "设置"
+      },
+      "waitFor": {
+        "role": "Button",
+        "name": "账号与安全"
+      }
+    },
+    {
+      "kind": "invoke",
+      "selector": {
+        "role": "Button",
+        "name": "账号与安全"
+      },
+      "waitFor": {
+        "role": "Text",
+        "name": "{self}"
+      }
+    },
+    {
+      "kind": "verify",
+      "field": "identity"
+    },
+    {
+      "kind": "invoke",
+      "selector": {
+        "role": "Button",
+        "name": "音频"
+      },
+      "waitFor": {
+        "role": "ComboBox",
+        "name": "{input}"
+      }
+    },
+    {
+      "kind": "verify",
+      "field": "audioInput"
+    },
+    {
+      "kind": "verify",
+      "field": "audioOutput"
+    },
+    {
+      "kind": "invoke",
+      "selector": {
+        "role": "Button",
+        "name": "关闭"
+      }
+    }
+  ]
+}

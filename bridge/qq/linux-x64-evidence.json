@@ -1,0 +1,426 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-10-05T14:58:29.672813+00:00",
+  "profileId": "qq-linux-3.2.34-53644-x64",
+  "source": {
+    "officialConfigURL": "https://qq-web.cdn-go.cn/im.qq.com_new/latest/rainbow/pcConfig.json",
+    "sourceURL": "https://qqdl.gtimg.cn/qqfile/QQNTV2/9.9.36/release/9ee04bef/QQ_3.2.34_260924_amd64_01.deb",
+    "packageBytes": 187185496,
+    "packageSHA256": "436c65e1dd28422e128a21cbddb5fe4e2e6c079d7f27fec2541e014d38cc336e",
+    "downloadedAt": "2026-10-05T14:48:31.553685+00:00",
+    "directory": "/tmp/qq-x64-static-ao0otabi",
+    "officialLandingPage": "https://im.qq.com/index/#/linux",
+    "downloadMethod": "Official GetSign endpoint POST for the configured package URL; downloaded only. Ephemeral signed query omitted.",
+    "qqVersion": "3.2.34-53644",
+    "buildVersion": "53644",
+    "architecture": "x64",
+    "libraryBytes": 33646512,
+    "librarySHA256": "c143c4e8ac94c20bcefb037e7062fbeccd0528bd746108d6bf1f0ae8e1710a8b",
+    "majorNodeSHA256": "95c4694572bb3b9fe62ff40a25168fb10b5c6a815fdd260e581ae3d6d92e85f9",
+    "wrapperNodeSHA256": "236ff3ebf29310c75a41394d80db4587411d43d66208c2a7d58b160d7b7b213b"
+  },
+  "validation": {
+    "runtimeTested": false,
+    "binaryExecuted": false,
+    "installationPerformed": false,
+    "livePrivateCallVerified": false,
+    "liveGroupCallVerified": false,
+    "duplexAudioVerified": false,
+    "method": "Read official package ELF64 little-endian e_machine62, local/dynamic symbols, RELA relocations, x86-64 disassembly with Capstone, serialized GUI V8 bytecode and constant pools. No QQ executable, native module or cached JavaScript was loaded/executed.",
+    "scope": "This exact version, Linux x64 and library SHA256 only. ARM64 runtime results do not transfer to this architecture."
+  },
+  "dispatch": {
+    "function": "CallCpp",
+    "address": "0x522e70",
+    "memberFunctionTable": "g_api_funcs",
+    "tableAddress": "0x13c1f30",
+    "entryStride": 16,
+    "entryCount": 112,
+    "callArgBytes": 24,
+    "messageSend": "0x51a780",
+    "commands": {
+      "1": {
+        "name": "Login",
+        "address": "0x5420d0",
+        "javascriptParams": [
+          "selfUid:string",
+          "selfUin:string",
+          "selfAvTinyid:string (GUI default empty)",
+          "dbPath:string",
+          "machineId:string"
+        ]
+      },
+      "4": {
+        "name": "StartCall",
+        "address": "0x545f60",
+        "javascriptParams": [
+          "paramsJSON:string"
+        ]
+      },
+      "5": {
+        "name": "Accept",
+        "address": "0x54c3c0",
+        "javascriptParams": [
+          "sceneId:int",
+          "inviterUid:string",
+          "inviteeUids:string[]",
+          "subBusinessType:int",
+          "opaqueInvite:string",
+          "useNtrtcDsp:boolean",
+          "model:string"
+        ]
+      },
+      "8": {
+        "name": "Quit",
+        "address": "0x54d250",
+        "javascriptParams": [
+          "sceneId:int",
+          "quitReason:int"
+        ]
+      },
+      "9": {
+        "name": "Reject",
+        "address": "0x54d680",
+        "javascriptParams": [
+          "sceneId:int",
+          "peerUid:string",
+          "rejectReason:int"
+        ]
+      },
+      "10": {
+        "name": "Close",
+        "address": "0x54d9f0",
+        "javascriptParams": [
+          "sceneId:int",
+          "peerUid:string",
+          "closeReason:int"
+        ]
+      },
+      "13": {
+        "name": "GetRoomInfo",
+        "address": "0x54e3f0",
+        "javascriptParams": [
+          "sceneId:int",
+          "relationId:string"
+        ]
+      },
+      "55": {
+        "name": "OnPenetrateEvent",
+        "address": "0x541b60",
+        "javascriptParams": [
+          "actionType:int",
+          "base64Buffer:string"
+        ]
+      },
+      "57": {
+        "name": "SetSDKInfo",
+        "address": "0x55f640",
+        "javascriptParams": [
+          "appVersion:string"
+        ]
+      },
+      "102": {
+        "name": "SelectAudioDevice",
+        "address": "0x552d40",
+        "javascriptParams": [
+          "inputId:int",
+          "outputId:int"
+        ]
+      },
+      "103": {
+        "name": "GetAllAudioDeviceHardwaresInfo",
+        "address": "0x542b50",
+        "javascriptParams": []
+      }
+    }
+  },
+  "initialization": {
+    "sdkInfo": {
+      "command": 57,
+      "params": [
+        "1.0.1230"
+      ],
+      "acknowledgement": "No command ACK: function stores appVersion and emits log only."
+    },
+    "login": {
+      "command": 1,
+      "params": [
+        "selfUid",
+        "selfUin",
+        "",
+        "QQ native user-data root",
+        ""
+      ],
+      "nativeBranch": "Incoming third string held in rbx (from r8) at0x5420e4. Empty at0x542570 branches0x5425a3 to SDK Login with original UID string; nonempty uses that third string at0x542625.",
+      "guiLogin": "BytecodeArray411@0x27a03d5",
+      "guiSetSDKInfo": "BytecodeArray1550@0x27aa3c0"
+    }
+  },
+  "guiComparison": [
+    {
+      "chunk": "protocol",
+      "arm64PayloadOffset": "0x43fcd20",
+      "x64PayloadOffset": "0x279bee0",
+      "objects": 3030,
+      "identicalBytecodeArrays": 280,
+      "constantPoolsIdentical": 248,
+      "constantPoolsTotal": 248,
+      "stringValuesIdentical": 699,
+      "stringValuesTotal": 699,
+      "checkedFunctions": [
+        {
+          "name": "login",
+          "objectId": 411,
+          "x64BytecodeArrayOffset": "0x27a03d5",
+          "bytecodeAndReferencesIdentical": true,
+          "constantPoolIdentical": true,
+          "differentReferencedStrings": []
+        },
+        {
+          "name": "sdkinfo",
+          "objectId": 1550,
+          "x64BytecodeArrayOffset": "0x27aa3c0",
+          "bytecodeAndReferencesIdentical": true,
+          "constantPoolIdentical": true,
+          "differentReferencedStrings": []
+        }
+      ]
+    },
+    {
+      "chunk": "callstore",
+      "arm64PayloadOffset": "0x459b0e0",
+      "x64PayloadOffset": "0x25531c0",
+      "objects": 19896,
+      "identicalBytecodeArrays": 1781,
+      "constantPoolsIdentical": 1450,
+      "constantPoolsTotal": 1701,
+      "stringValuesIdentical": 2964,
+      "stringValuesTotal": 3072,
+      "checkedFunctions": [
+        {
+          "name": "startparams",
+          "objectId": 11851,
+          "x64BytecodeArrayOffset": "0x25bf1c6",
+          "bytecodeAndReferencesIdentical": true,
+          "constantPoolIdentical": true,
+          "differentReferencedStrings": []
+        },
+        {
+          "name": "startcall",
+          "objectId": 11666,
+          "x64BytecodeArrayOffset": "0x25bc974",
+          "bytecodeAndReferencesIdentical": true,
+          "constantPoolIdentical": true,
+          "differentReferencedStrings": []
+        },
+        {
+          "name": "sceneinfo",
+          "objectId": 4465,
+          "x64BytecodeArrayOffset": "0x257ad6d",
+          "bytecodeAndReferencesIdentical": true,
+          "constantPoolIdentical": true,
+          "differentReferencedStrings": []
+        },
+        {
+          "name": "startgroupcall",
+          "objectId": 11728,
+          "x64BytecodeArrayOffset": "0x25bd65f",
+          "bytecodeAndReferencesIdentical": true,
+          "constantPoolIdentical": true,
+          "differentReferencedStrings": []
+        }
+      ]
+    },
+    {
+      "chunk": "sceneEnums",
+      "arm64PayloadOffset": "0x1b08eb0",
+      "x64PayloadOffset": "0x50abe60",
+      "objects": 201,
+      "identicalBytecodeArrays": 19,
+      "identicalConstantPools": 11,
+      "identicalStringValues": 76
+    },
+    {
+      "chunk": "commandEnums",
+      "arm64PayloadOffset": "0x1b0ab00",
+      "x64PayloadOffset": "0x50a7220",
+      "objects": 314,
+      "identicalBytecodeArrays": 5,
+      "identicalConstantPools": 4,
+      "identicalStringValues": 273
+    }
+  ],
+  "guiComparisonNotes": [
+    "Compared object graphs by stable object IDs without running V8. Protocol module has every BytecodeArray, direct constant pool and string value equal to the separately recovered ARM64 GUI.",
+    "Callstore chunk contains minified import-name/metadata differences; no whole-chunk equivalence claimed. Explicit StartCall, getStartCallParams, scene-info and startGroupCall bytecode, constant pools and their direct named strings are equal.",
+    "Scene and command enum chunks also match bytecode, constant pools and all string values: SceneFriend1, SceneGroup3 and dispatch numbers are unchanged.",
+    "GUI parameters and matching native entry points establish a static implementation profile, not successful room entry or actual audio."
+  ],
+  "callbacks": [
+    {
+      "event": 20008,
+      "symbol": "QRTCServiceInterfaceWrapper::OnUserJoinRoom",
+      "address": "0x530590",
+      "messageSend": "0x530800",
+      "schema": [
+        "uid:string",
+        "account_type:int",
+        "is_room_creator:int(0|1)",
+        "is_mic_off_by_admin:int",
+        "unknown:int",
+        "unknown:int",
+        "unknown:string"
+      ],
+      "evidence": "Struct string at +0, integers at +0x18/+0x1c(byte)/+0x20/+0x24/+0x28, string at +0x30. Vector allocation 0xa8 = seven 0x18-byte CallArg records; send id 0x4e28."
+    },
+    {
+      "event": 20009,
+      "symbol": "QRTCServiceInterfaceWrapper::OnUserLeaveRoom",
+      "address": "0x5309a0",
+      "messageSend": "0x530cc7",
+      "schema": [
+        "quit_reason:int",
+        "uid:string",
+        "account_type:int",
+        "is_room_creator:int(0|1)",
+        "is_mic_off_by_admin:int",
+        "unknown:int",
+        "unknown:int",
+        "unknown:string",
+        "unknown:string"
+      ],
+      "evidence": "First value is incoming edx quit_reason; remaining values from user struct +0/+0x18/+0x1c(byte)/+0x20/+0x24/+0x28/+0x30/+0x50. Vector allocation 0xd8 = nine CallArg records; send id 0x4e29."
+    },
+    {
+      "event": 20010,
+      "symbol": "QRTCServiceInterfaceWrapper::OnGetRoomInfo",
+      "address": "0x530e60",
+      "schema": [
+        "roomInfoJSON:string",
+        "ret:int"
+      ],
+      "jsonSchema": {
+        "relation_id": "decimal string",
+        "scene_id": "int",
+        "user_num": "int",
+        "user_list": [
+          {
+            "uid": "string",
+            "account_type": "int"
+          }
+        ]
+      },
+      "evidence": "Success path serializes relation_id via number_to_string at 0x530f53 then JSON String; scene_id/user_num via Writer::Int; user_list entries uid String and account_type Int. CallArg type2 at 0x5313d5 and type0 at 0x531465; vector size0x30. Error/null info branch sends empty string and ret (0x5310c4)."
+    },
+    {
+      "event": 20022,
+      "symbol": "QRTCServiceInterfaceWrapper::OnChatClosed",
+      "address": "0x533d90",
+      "messageSend": "0x5340fb",
+      "schema": [
+        "closeReason:int",
+        "errorCode:int",
+        "userEventExited:int(0|1)",
+        "extraInt:int(default -1)",
+        "extraString:string(default empty)",
+        "extraString:string(default empty)"
+      ],
+      "evidence": "0x533f49..0x534030 builds six CallArg values; vector0x90; send id0x4e36. Only errorCode0x38b(907) with nonempty extra buffer decodes protobuf field1 int32, field2 string, field3 string; else extras remain -1/empty/empty."
+    },
+    {
+      "event": 20061,
+      "symbol": "QRTCServiceInterfaceWrapper::OnAudioDeviceInfoUpdate",
+      "address": "0x553050",
+      "registeredFrom": "0x542ab0",
+      "registrationPointer": "0x542ad4",
+      "messageSend": "0x553ce0",
+      "schema": [
+        "outputIDs:int[]",
+        "outputNames:string[]",
+        "outputMetadata:string[]",
+        "inputIDs:int[]",
+        "inputNames:string[]",
+        "inputMetadata:string[]",
+        "selectedOutputID:int",
+        "selectedInputID:int",
+        "defaultOutputID:int",
+        "defaultInputID:int"
+      ],
+      "evidence": "Output/input loops explicitly labeled by log strings at0x5532be/0x55351e. Types3,4,4,3,4,4,0,0,0,0 built at stack+0xe0..0x1b8; vector allocation0xf0. Status struct offsets0/4/8/12 correspond to selected output/selected input/default output/default input as established by format string and arguments at0x5535da..0x553623. Send id0x4e5d."
+    },
+    {
+      "event": 20003,
+      "symbol": "QRTCServiceInterfaceWrapper::OnError",
+      "address": "0x52eaa0",
+      "messageSend": "0x52ec52",
+      "schema": [
+        "sceneId:int32",
+        "relationId:decimal uint64 string",
+        "message:string"
+      ],
+      "evidence": "0x52eae0 converts relationId with number_to_string; CallArg tags 0/2/2 at 0x52eb5c/0x52eb7b/0x52ebbb and vector size0x48; event0x4e23. Diagnostic only: no teardown guarantee."
+    },
+    {
+      "event": 20005,
+      "symbol": "QRTCServiceInterfaceWrapper::OnConnectTimeOut",
+      "address": "0x52f690",
+      "messageSend": "0x52f6fc",
+      "schema": [],
+      "evidence": "Zero vector at 0x52f6e2..0x52f6e9; event0x4e25 at0x52f6f5. Timeout only: no room identity or teardown guarantee."
+    },
+    {
+      "event": 20011,
+      "symbol": "QRTCServiceInterfaceWrapper::OnRoomDestroy",
+      "address": "0x531810",
+      "schema": [
+        "sceneId:int32",
+        "relationId:decimal uint64 string",
+        "roomId:decimal uint64 string"
+      ]
+    },
+    {
+      "event": 20018,
+      "symbol": "QRTCServiceInterfaceWrapper::OnPeerReject",
+      "address": "0x533340",
+      "schema": [
+        "reason:int32"
+      ]
+    },
+    {
+      "event": 20019,
+      "symbol": "QRTCServiceInterfaceWrapper::OnPeerCancelInvite",
+      "address": "0x5334f0",
+      "schema": []
+    }
+  ],
+  "audio": {
+    "selectionACK": "SelectAudioDevice returns hard-coded [1, empty string] at0x552e3a onward; must enumerate and verify selected IDs, never infer success from ACK.",
+    "linuxRouting": "Uses the existing isolated PulseAudio server and locally compiled native guard; no desktop default-device changes. Sound transport remains untested on x64."
+  },
+  "controlBoundary": {
+    "groupStart": "Same ordinary StartCall JSON as ARM64: scene3, relation_id decimal group code, invite_original3, sub_business_type1, invite_count0 and empty invite_uids.",
+    "groupLeave": "Quit [3,0]",
+    "groupJoinAtomic": false,
+    "note": "No atomic onlyJoinExisting flag was recovered; fresh active-room precheck can race room termination. No live x64 calls attempted."
+  },
+  "reproduction": {
+    "binaryDirectory": "/tmp/qq-x64-static-ao0otabi/extracted/opt/QQ",
+    "localArtifacts": [
+      "command-map.txt",
+      "all-symbols.txt",
+      "native-5420d0.asm",
+      "native-545f60.asm",
+      "native-54c3c0.asm",
+      "native-54d250.asm",
+      "native-54d9f0.asm",
+      "native-55f640.asm",
+      "native-553050-audio-callback.asm",
+      "gui-comparison.json",
+      "gui-login.txt",
+      "gui-startparams.txt"
+    ],
+    "staticExtraction": "dpkg-deb -x QQ_x64.deb extracted; this only extracts package data and does not run maintainer scripts",
+    "librarySymbols": "nm -a -S -C extracted/opt/QQ/resources/app/avsdk/libAVSDKPlugin.so",
+    "artifactsDirectory": "/tmp/qq-x64-static-ao0otabi"
+  }
+}

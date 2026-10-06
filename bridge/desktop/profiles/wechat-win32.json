@@ -1,0 +1,222 @@
+{
+  "formatVersion": 1,
+  "platform": "wechat",
+  "os": "win32",
+  "calibrated": false,
+  "label": "微信私聊语音",
+  "notes": [
+    "Calibration required: these are explicit starter workflows, not a declaration that a particular client build was tested.",
+    "Preflight opens settings, reads the account and both audio device selections, and closes settings before call control. Edit these settings selectors to the actual accessibility tree; no audio setting is changed automatically.",
+    "Exact target identity must be exposed. Do not substitute a non-unique contact nickname for an account ID; inspect the contact detail or meeting ID view and scope selectors appropriately.",
+    "Client settings may expose names in title, description or value depending on platform. The inspector reports all three.",
+    "While connected, account and routes are bound to the previously checked process/configuration. Manual changes to hidden settings cannot be detected continuously."
+  ],
+  "identity": {
+    "role": "Text",
+    "name": "{self}"
+  },
+  "target": {
+    "role": "Text",
+    "name": "{target}"
+  },
+  "audioInput": {
+    "role": "ComboBox",
+    "name": "{input}"
+  },
+  "audioOutput": {
+    "role": "ComboBox",
+    "name": "{output}"
+  },
+  "states": {
+    "idle": {
+      "all": [
+        {
+          "role": "Window",
+          "name": "微信"
+        }
+      ],
+      "none": [
+        {
+          "className": "mmui::VOIPWindow"
+        },
+        {
+          "className": "mmui::VOIPTrayWindow"
+        }
+      ]
+    },
+    "ringing": [
+      {
+        "className": "mmui::VOIPTrayWindow"
+      },
+      {
+        "role": "Button",
+        "name": "接听"
+      }
+    ],
+    "dialing": {
+      "all": [
+        {
+          "className": "mmui::VOIPWindow"
+        }
+      ],
+      "none": [
+        {
+          "className": "mmui::VOIPDurationTextView"
+        }
+      ]
+    },
+    "connected": [
+      {
+        "className": "mmui::VOIPWindow"
+      },
+      {
+        "className": "mmui::VOIPDurationTextView"
+      }
+    ]
+  },
+  "actions": {
+    "dial": {
+      "kind": "direct",
+      "steps": [
+        {
+          "kind": "setValue",
+          "selector": {
+            "role": "Edit",
+            "name": "搜索"
+          },
+          "value": "{target}"
+        },
+        {
+          "kind": "invoke",
+          "selector": {
+            "role": "ListItem",
+            "name": "{target}"
+          }
+        },
+        {
+          "kind": "invoke",
+          "selector": {
+            "role": "Button",
+            "name": "语音聊天"
+          },
+          "commit": true
+        }
+      ]
+    },
+    "accept": {
+      "kind": "direct",
+      "steps": [
+        {
+          "kind": "invoke",
+          "selector": {
+            "role": "Button",
+            "name": "接听"
+          },
+          "commit": true
+        }
+      ]
+    },
+    "reject": {
+      "kind": "direct",
+      "steps": [
+        {
+          "kind": "invoke",
+          "selector": {
+            "role": "Button",
+            "name": "拒绝"
+          },
+          "commit": true
+        }
+      ]
+    },
+    "hangup": {
+      "kind": "direct",
+      "steps": [
+        {
+          "kind": "invoke",
+          "selector": {
+            "role": "Button",
+            "name": "挂断"
+          },
+          "commit": true
+        }
+      ]
+    }
+  },
+  "reference": {
+    "source": "https://github.com/Hello-Mr-Crab/pywechat",
+    "commit": "8589baa049bb91d3a500602c167f07b2f8397a13",
+    "files": [
+      "src/pyweixin/Uielements.py",
+      "src/pyweixin/WeChatAuto.py"
+    ],
+    "scope": "Windows Weixin 4.1.7 voice button, VOIPWindow, incoming tray, duration class and answer/decline labels. 4.1.8+ uses a dropdown and needs a calibrated menu-item step; no keyboard coordinates are copied."
+  },
+  "evidenceMode": "preflight",
+  "preflight": [
+    {
+      "kind": "invoke",
+      "selector": {
+        "role": "Button",
+        "name": "设置"
+      },
+      "waitFor": {
+        "role": "Button",
+        "name": "账号设置",
+        "ancestor": {
+          "className": "mmui::PreferenceWindow"
+        }
+      }
+    },
+    {
+      "kind": "invoke",
+      "selector": {
+        "role": "Button",
+        "name": "账号设置",
+        "ancestor": {
+          "className": "mmui::PreferenceWindow"
+        }
+      },
+      "waitFor": {
+        "role": "Text",
+        "name": "{self}"
+      }
+    },
+    {
+      "kind": "verify",
+      "field": "identity"
+    },
+    {
+      "kind": "invoke",
+      "selector": {
+        "role": "Button",
+        "name": "音视频",
+        "ancestor": {
+          "className": "mmui::PreferenceWindow"
+        }
+      },
+      "waitFor": {
+        "role": "ComboBox",
+        "name": "{input}"
+      }
+    },
+    {
+      "kind": "verify",
+      "field": "audioInput"
+    },
+    {
+      "kind": "verify",
+      "field": "audioOutput"
+    },
+    {
+      "kind": "invoke",
+      "selector": {
+        "role": "Button",
+        "name": "关闭",
+        "ancestor": {
+          "className": "mmui::PreferenceWindow"
+        }
+      }
+    }
+  ]
+}
