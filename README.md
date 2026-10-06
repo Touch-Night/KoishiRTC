@@ -48,6 +48,32 @@ npm install /绝对路径/koishi-plugin-rtc-bridge-0.1.0.tgz
 
 打开 Koishi 控制台的 **实时通话** 页面，先运行连接检查，再进行通话测试。
 
+## WebUI
+
+启用 `console` 和 `auth` 插件后，以权限等级 4 的账号登录 Koishi 控制台，从侧栏进入 **实时通话**，或在控制台地址后加上 `/rtc`。地址取决于 Koishi 的监听端口和 `console.uiPath`：例如端口为 `5140`、`uiPath` 为 `/console` 时，页面是 [http://127.0.0.1:5140/console/rtc](http://127.0.0.1:5140/console/rtc)；`uiPath` 为空时则是 `/rtc`。
+
+本项目还提供独立开发控制台。在源码目录完成安装和构建后运行：
+
+```sh
+npm run dev:console
+```
+
+默认登录页：[http://127.0.0.1:6129/console/login](http://127.0.0.1:6129/console/login)；实时通话页：[http://127.0.0.1:6129/console/rtc](http://127.0.0.1:6129/console/rtc)。首次启动生成的账号、密码和端口配置保存在本机 `runtime/console/config.json`，请从该文件读取登录凭据。
+
+以下截图由实际 Vue 控制台组件配合演示数据生成，用于展示界面，不代表真实通话验收结果。
+
+**通话概览与音频控制**
+
+![实时通话 WebUI 概览（演示数据）](https://raw.githubusercontent.com/Touch-Night/KoishiRTC/main/docs/images/webui-overview.png)
+
+**摄像头与屏幕共享**
+
+![实时通话 WebUI 视频预览与发送来源（演示数据）](https://raw.githubusercontent.com/Touch-Night/KoishiRTC/main/docs/images/webui-video.png)
+
+**移动端布局**
+
+<img src="https://raw.githubusercontent.com/Touch-Night/KoishiRTC/main/docs/images/webui-mobile.png" alt="实时通话 WebUI 移动端布局（演示数据）" width="390">
+
 ## 给插件开发者
 
 ```ts

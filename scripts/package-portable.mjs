@@ -40,6 +40,8 @@ const requiredFiles = [
   'docs/windows-quickstart.md', 'docs/qq-windows.md', 'docs/audio-setup.md',
 ];
 const extensions = new Set(['.ts', '.tsx', '.js', '.cjs', '.mjs', '.vue', '.json', '.map', '.css', '.html', '.md', '.txt', '.py', '.c', '.h', '.sh', '.ps1', '.yaml', '.yml']);
+// Only these reviewed documentation images may accompany source files.
+const documentationImages = new Set(['docs/images/webui-overview.png', 'docs/images/webui-video.png', 'docs/images/webui-mobile.png']);
 const blockedParts = /^(?:runtime|node_modules|\.git|\.venv(?:[-_].*)?|venv|__pycache__|logs?|cache|data|qqnt|nt_qq|artifacts|releases|downloads?)$/i;
 const blockedNames = /(?:^\.env(?:\.|$)|(?:^|[._-])(?:token|secret|password|credentials|cookies?|session)(?:[._-]|$)|(?:^|[._-])(?:local|user)[._-]config(?:\.|$)|\.db(?:-|$)|\.sqlite(?:3)?(?:-|$)|\.(?:so(?:\.\d+)*|dll|dylib|exe|node|pyc|pyo|zip|tgz|tar|gz|7z|asar|pem|key|log)$)/i;
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -66,7 +68,7 @@ export function collectFiles(base = root) {
       const child = path.join(relative, item.name);
       if (item.isSymbolicLink()) throw new Error(`Distribution source must not contain links: ${child}`);
       if (item.isDirectory()) walk(child);
-      else if (item.isFile() && extensions.has(path.extname(item.name).toLowerCase())) {
+      else if (item.isFile() && (extensions.has(path.extname(item.name).toLowerCase()) || documentationImages.has(child.replaceAll(path.sep, '/')))) {
         // A later developer-created config next to source must not become a secret leak.
         if (/\.(?:json|ya?ml)$/i.test(item.name) && !sourceConfigurations.has(child.replaceAll(path.sep, '/')) && !['package.json', 'profile.json', 'native-evidence.json', 'gui-enum-evidence.json'].includes(item.name) && !/\.(?:example|sample|schema)\.(?:json|ya?ml)$/i.test(item.name)) { skip('non-template configuration'); continue; }
         add(child);

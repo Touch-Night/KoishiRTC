@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { stripVTControlCharacters } from 'node:util';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const id = 'napcat-plugin-koishi-rtc-qq';
@@ -109,8 +110,9 @@ test('Mac installer dry-run is read-only and the copied worker registers indepen
   const imported = spawnSync(process.execPath, ['--input-type=module', '-e', `await import(${JSON.stringify(pathToFileURL(path.join(f.dest, 'bridge/video/index.mjs')).href)})`], { encoding: 'utf8' });
   assert.equal(imported.status, 0, imported.stderr);
   const child = spawnSync(process.execPath, [path.join(f.dest, 'napcat/napcat.mjs')], { encoding: 'utf8' });
-  assert.equal(child.status, 0, child.stderr); assert.match(child.stdout, /WORKER_LOADED 1/);
-  const parent = spawnSync(process.execPath, [config.napcatLoader], { encoding: 'utf8' }); assert.equal(parent.status, 0, parent.stderr); assert.match(parent.stdout, /WORKER_LOADED 1/);
+  // Inherited FORCE_COLOR can decorate the numeric console.log argument.
+  assert.equal(child.status, 0, child.stderr); assert.match(stripVTControlCharacters(child.stdout), /^WORKER_LOADED 1$/m);
+  const parent = spawnSync(process.execPath, [config.napcatLoader], { encoding: 'utf8' }); assert.equal(parent.status, 0, parent.stderr); assert.match(stripVTControlCharacters(parent.stdout), /^WORKER_LOADED 1$/m);
   const bundle = await fs.readFile(path.join(f.dest, 'napcat/napcat.mjs'), 'utf8'); assert.ok(bundle.includes("const officialWhitelist = new Set(['napcat-plugin-builtin']);"));
   const repeat = f.install(); assert.notEqual(repeat.status, 0); assert.match(repeat.stderr, /already exists/); assert.equal(await fs.readFile(path.join(f.dest, 'napcat/napcat.mjs'), 'utf8'), bundle);
 });

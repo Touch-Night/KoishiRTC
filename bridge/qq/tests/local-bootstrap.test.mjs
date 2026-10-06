@@ -7,6 +7,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
+import { stripVTControlCharacters } from 'node:util';
 const require = createRequire(import.meta.url);
 const register = require('../scripts/local-plugin-bootstrap.cjs');
 const key = Symbol.for('koishi-rtc.qq.local-plugin-bootstrap.v1');
@@ -74,5 +75,6 @@ console.log('WORKER_LOADED', await new Manager().scan());
   assert.equal(patch.status, 0, patch.stderr);
   const worker = spawnSync(process.execPath, [path.join(root, 'napcat.mjs')], { encoding: 'utf8' });
   assert.equal(worker.status, 0, worker.stderr);
-  assert.match(worker.stdout, /WORKER_LOADED 1/);
+  // Inherited FORCE_COLOR can decorate the numeric console.log argument.
+  assert.match(stripVTControlCharacters(worker.stdout), /^WORKER_LOADED 1$/m);
 });
