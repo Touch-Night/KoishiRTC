@@ -2,6 +2,7 @@
 // AVSDK mappings derived from ClaudiaGardner/maibot-qq-voice-call 0.3.4.
 import { createHash, randomUUID } from 'node:crypto';
 import { buildGroupJoinParams, buildGroupStartParams, buildPrivateDialParams, decodeGroupActivity, decodeObservation, profileById } from './native-profile.mjs';
+import { PrivateScreenUpgrade } from './private-screen-upgrade.mjs';
 
 export const PROTOCOL_VERSION = 1;
 export const NATIVE = Object.freeze({ LOGIN: 1, START_CALL: 4, ACCEPT: 5, KERNEL: 55, SDK_INFO: 57,
@@ -60,7 +61,8 @@ const snapshot = value => JSON.parse(JSON.stringify(value));
 
 export function createController({ session, core, selfInfo, mediaEnabled = false, invokeHost, hostRequest,
   probeHost = async () => ({ ready: false }), now = () => new Date().toISOString(), id = randomUUID,
-  platform = process.platform, arch = process.arch, maxEvents = 256, ackTimeoutMs = 10000, closeCheckIntervalMs = 250, closeCheckTimeoutMs = 2000 } = {}) {
+  platform = process.platform, arch = process.arch, maxEvents = 256, ackTimeoutMs = 10000, closeCheckIntervalMs = 250, closeCheckTimeoutMs = 2000,
+  screenUpgradeDelayMs = 2000, screenUpgradeConnectionMs = 15000 } = {}) {
   let service = null, listenerId = null, stopped = false, loginTimer = null, activeInvite = null;
   let inviteFingerprint = null, acceptRequestId = null, host = null;
   let loginRequestId = id();
@@ -68,6 +70,10 @@ export function createController({ session, core, selfInfo, mediaEnabled = false
   let loginInFlight = false;
   let concurrentInviteSeen = false;
   let pendingControl = null, closeCheck = null;
+  let screenUpgrade = null;
+  let screenPreparation = null;
+  let screenCancellationCallId = null, allScreenSendsCancelled = false;
+  const cancelledScreenSends = new Set();
   let eventSeq = 0;
   const events = [], requests = new Map(), groups = new Map(), groupInvitations = new Map();
   const videoRequests = new Map();
@@ -75,7 +81,7 @@ export function createController({ session, core, selfInfo, mediaEnabled = false
   let videoSync = Promise.resolve(), videoSessionFingerprint = null;
   const GROUP_FRESHNESS_MS = 60000;
   const bootId = id();
-  const state = { version: '0.1.0', bootId, startedAt: now(), platform, arch, mediaEnabled,
+  const state = { version: '0.2.0', bootId, startedAt: now(), platform, arch, mediaEnabled,
     listenerRegistered: false, serviceAvailable: false, serviceNull: null, serviceMethods: [],
     loginPosted: false, sdkInfoPosted: false, loginIdentityMode: null,
     sdkLogMessages: 0, lastSdkLogCommand: null, groupNotificationsRequested: false, lastError: null, call: null,
@@ -86,6 +92,12 @@ export function createController({ session, core, selfInfo, mediaEnabled = false
     while (events.length > maxEvents) events.shift();
   }
   function callEvent() {
+    if (screenPreparation && (state.call !== screenPreparation.call || state.call?.phase !== 'connected')) screenPreparation.cancelled = true;
+    if (screenUpgrade && !screenUpgrade.current()) {
+      screenUpgrade.cancel();
+      if (state.call?.mediaTransition?.requestId === screenUpgrade.requestId) state.call.mediaTransition = { ...screenUpgrade.progress };
+      screenUpgrade = null;
+    }
     if (closeCheck && !matchesCloseCheck(closeCheck)) cancelCloseCheck();
     emit('call.state', { call: state.call });
     if (hostRequest && mediaEnabled) void syncVideoSession().catch(() => {});
@@ -93,7 +105,7 @@ export function createController({ session, core, selfInfo, mediaEnabled = false
   function syncVideoSession() {
     if (typeof hostRequest !== 'function') throw new BridgeError('VIDEO_UNAVAILABLE', 'AV Host video transport is unavailable', 503);
     const call = state.call;
-    const description = call?.phase === 'connected'
+    const description = call?.phase === 'connected' && !(screenUpgrade?.active && !['restoring', 'completed'].includes(screenUpgrade.progress.status))
       ? { callId: call.id, selfUid: identity().selfUid, nativeSceneId: call.nativeSceneId, participants: [...new Set((call.participants ?? []).map(member => member.uid))] }
       : { callId: null, selfUid: identity().selfUid, participants: [] };
     const fingerprint = JSON.stringify(description);
@@ -131,21 +143,28 @@ export function createController({ session, core, selfInfo, mediaEnabled = false
     if (closeCheck) clearTimeout(closeCheck.timer);
     closeCheck = null;
   }
-  function startCloseCheck(entry) {
+  function startCloseCheck(entry, trigger = 'acknowledged') {
     const profile = profileById(host?.nativeProfile?.id);
-    if (!profile?.roomIdleQuery || profile.platform !== platform || profile.arch !== arch || state.call?.phase !== 'ending') return;
+    if (!profile?.roomIdleQuery || profile.platform !== platform || profile.arch !== arch || state.call?.phase !== 'ending' ||
+        state.call.id !== entry.receipt.callId || state.call.nativeCloseRequestId !== entry.receipt.requestId ||
+        ![NATIVE.CLOSE, NATIVE.QUIT].includes(entry.nativeCommand)) return;
+    // A missing ACK must not permanently reserve a call that was connected and
+    // has since become idle. Unconfirmed opens may still be queued: without a
+    // close ACK, never interpret their initial room=0 as completed teardown.
+    if (trigger !== 'acknowledged' && !state.call.nativeConnectedAt) return;
+    if (closeCheck?.closeRequestId === entry.receipt.requestId) return;
     cancelCloseCheck();
     // Audited command 14 returns [0, '', uint64 roomId]. Empty room strings
     // denote an unavailable service, and cannot be interpreted as idle.
     const check = closeCheck = { callId: state.call.id, closeRequestId: entry.receipt.requestId,
-      generation: loginRequestId, hostBootId: lastHostBootId, attempt: 0, timer: null, requestId: null };
+      generation: loginRequestId, hostBootId: lastHostBootId, trigger, attempt: 0, timer: null, requestId: null };
     function retry(reason) {
       if (!matchesCloseCheck(check)) return;
       clearTimeout(check.timer); check.requestId = null;
       if (check.attempt >= 6) {
-        state.call.nativeCloseCheck = { status: 'unknown', attempts: check.attempt, reason };
+        state.call.nativeCloseCheck = { status: 'unknown', attempts: check.attempt, trigger: check.trigger, reason };
         state.call.nativeTeardownUnknown = true;
-        state.call.nativeError = 'Native close was accepted, but local idle could not be confirmed: ' + reason;
+        state.call.nativeError = 'Native close was requested, but local idle could not be confirmed: ' + reason;
         cancelCloseCheck(); callEvent(); return;
       }
       check.timer = setTimeout(poll, closeCheckIntervalMs); check.timer.unref?.();
@@ -173,13 +192,14 @@ export function createController({ session, core, selfInfo, mediaEnabled = false
       const call = state.call;
       call.phase = 'ended'; call.endedAt = now(); call.endReason = null; call.acceptReady = false;
       call.nativeTeardownUnknown = false; call.nativeAckTimedOut = false;
+      call.nativeError = null; clearAckTimer(check.closeRequestId);
       call.nativeEndEvent = 'native.roomIdle'; call.remoteEndedConfirmed = false;
-      call.nativeCloseCheck = { status: 'idle', attempts: check.attempt, command: NATIVE.CHATTING_ROOM,
+      call.nativeCloseCheck = { status: 'idle', attempts: check.attempt, trigger: check.trigger, command: NATIVE.CHATTING_ROOM,
         requestId: check.requestId, closeRequestId: check.closeRequestId, roomId: '0', hostBootId: check.hostBootId };
       activeInvite = null; acceptRequestId = null; pendingControl = null;
       cancelCloseCheck(); callEvent();
     };
-    state.call.nativeCloseCheck = { status: 'checking', attempts: 0 };
+    state.call.nativeCloseCheck = { status: 'checking', attempts: 0, trigger };
     callEvent(); poll();
   }
   function clearAckTimer(requestId) {
@@ -192,6 +212,117 @@ export function createController({ session, core, selfInfo, mediaEnabled = false
     }
     nativeQueries.clear();
   }
+  function screenUpgradeAvailable() {
+    const profile = profileById(host?.nativeProfile?.id);
+    return profile?.privateScreenUpgrade === true && profile.platform === platform && profile.arch === arch &&
+      host?.ready === true && state.loginPosted && typeof hostRequest === 'function';
+  }
+  function screenSendCancelled(callId, requestId) {
+    return screenCancellationCallId === callId && (allScreenSendsCancelled || cancelledScreenSends.has(requestId));
+  }
+  function cancelScreenSend(callId, requestId) {
+    if (screenCancellationCallId !== callId) {
+      screenCancellationCallId = callId; cancelledScreenSends.clear(); allScreenSendsCancelled = false;
+    }
+    // A cancel can overtake its send while an upstream transport verifies the
+    // owner. Retain it for this call; eviction would revive a delayed request.
+    if (cancelledScreenSends.size >= 10000) allScreenSendsCancelled = true;
+    else cancelledScreenSends.add(requestId);
+  }
+  function unchangedVideoSourceError(message, callId, payload, requestId) {
+    return new BridgeError('INVALID_SOURCE', message, 409, { videoSendFailure: {
+      callId, requestId, kind: payload.kind, sourceId: payload.sourceId, outcome: 'unchanged',
+    } });
+  }
+  function describeVideo(video) {
+    const call = state.call;
+    const upgradePossible = call?.kind === 'private' && call.phase === 'connected' && call.nativeSceneId === 1 && screenUpgradeAvailable();
+    const transition = call?.mediaTransition;
+    return { ...video,
+      ...(upgradePossible && video.supported ? { shareScreenSupported: true, shareScreenRequiresUpgrade: true } : {}),
+      ...(transition ? { mediaTransition: transition } : {}),
+      ...(screenUpgrade?.active && screenUpgrade.progress.status !== 'completed' ? { sending: { ...video.sending,
+        screen: { sourceId: screenUpgrade.sourceId, state: 'starting', kind: 'screen', transition: screenUpgrade.progress.status } } } : {}) };
+  }
+  async function beginScreenUpgrade(call, payload, requestId) {
+    if (screenSendCancelled(call.id, requestId)) throw new BridgeError('SCREEN_UPGRADE_CANCELLED', 'This screen-share request was cancelled before handover', 409);
+    if (screenPreparation || screenUpgrade?.active || pendingControl) throw new BridgeError('MEDIA_TRANSITION', 'A call transition is already in progress', 409);
+    const preparation = screenPreparation = { call, requestId, cancelled: false };
+    try { return await prepareScreenUpgrade(call, payload, requestId, preparation); }
+    finally { if (screenPreparation === preparation) screenPreparation = null; }
+  }
+  async function prepareScreenUpgrade(call, payload, requestId, preparation) {
+    const deadline = Date.now() + 40000;
+    if (!screenUpgradeAvailable()) throw new BridgeError('VIDEO_SCENE_UNSUPPORTED', 'This QQ build has no audited in-call screen-share handover', 409);
+    if (screenUpgrade?.active || pendingControl) throw new BridgeError('MEDIA_TRANSITION', 'A call transition is already in progress', 409);
+    const generation = loginRequestId, hostBootId = lastHostBootId;
+    const sameCall = () => !stopped && !preparation.cancelled && generation === loginRequestId && hostBootId === lastHostBootId && state.call === call && call.phase === 'connected';
+    const sources = await hostRequest(`/v1/video/sources?${new URLSearchParams({ callId: call.id })}`);
+    if (!sameCall()) throw new BridgeError('STALE_CALL', 'Call changed while checking screen-share sources', 409);
+    const list = Array.isArray(sources) ? sources : sources?.sources;
+    if (!Array.isArray(list) || !list.some(source => source.id === payload.sourceId && source.channels?.includes('screen'))) {
+      throw unchangedVideoSourceError('Select an available screen-share source before switching the call', call.id, payload, requestId);
+    }
+    if (!sameCall() || call.nativeSceneId !== 1 || screenUpgrade?.active) throw new BridgeError('STALE_CALL', 'Call changed while checking screen-share sources', 409);
+    if (!await checkPrivateScreen(call.peerUid)) throw new BridgeError('SCREEN_UPGRADE_UNAVAILABLE', 'The native QQ screen-share service is unavailable', 409);
+    const previousVideo = await hostRequest('/v1/video/state');
+    if (!sameCall() || call.nativeSceneId !== 1 || screenUpgrade?.active) throw new BridgeError('STALE_CALL', 'Call changed during the screen-share check', 409);
+    const camera = previousVideo?.sending?.camera?.state === 'sending' ? previousVideo.sending.camera : null;
+    const subscriptions = (previousVideo?.tracks ?? []).filter(track => track.subscribed && track.uid === call.peerUid);
+    const upgrade = new PrivateScreenUpgrade({ requestId, ...identity(), peerUid: call.peerUid, peerUin: call.peerUin,
+      valid: () => sameCall() && screenUpgrade === upgrade,
+      invoke: invokeHost, now, delayMs: screenUpgradeDelayMs,
+      timeoutMs: Math.max(1, deadline - Date.now()),
+      acknowledgementMs: Math.min(ackTimeoutMs, 2000), connectionMs: screenUpgradeConnectionMs,
+      prepare: async () => {
+        // Quiesce old native video before closing DAV. The same logical call and
+        // user-selected sources survive, but no physical camera is auto-selected.
+        // callEvent already queues this clear. Join the same serialized update
+        // rather than clearing twice while the first native stop is in flight.
+        await syncVideoSession();
+      },
+      beginRoom: () => {
+        call.nativeSceneId = 2; call.nativeRoom = { sceneId: 2, relationId: call.peerUin };
+        activeInvite = null; acceptRequestId = null; call.videoTracks = [];
+        callEvent();
+      },
+      changed: transition => { call.mediaTransition = transition; callEvent(); },
+      failed: (transition, crossedCloseBoundary) => {
+        call.mediaTransition = transition;
+        if (crossedCloseBoundary && !(upgrade.entered && upgrade.peerJoined)) {
+          call.phase = 'error'; call.nativeTeardownUnknown = true; call.nativeError = transition.error;
+        } else if (upgrade.entered && upgrade.peerJoined) call.media = 'screen';
+        screenUpgrade = null; callEvent();
+      },
+      restore: async () => {
+        if (!upgrade.current()) throw new BridgeError('STALE_CALL', 'Call ended during screen-share handover', 409);
+        await syncVideoSession();
+        if (!upgrade.current()) throw new BridgeError('STALE_CALL', 'Call ended during screen-share handover', 409);
+        // A new native room invalidates the Host's source catalogue. Rebuild it
+        // in this generation and require the exact previously selected IDs;
+        // restoring a stale handle or substituting the default camera is unsafe.
+        const restoredSources = await hostRequest(`/v1/video/sources?${new URLSearchParams({ callId: call.id })}`);
+        if (!upgrade.current()) throw new BridgeError('STALE_CALL', 'Call ended while restoring screen-share sources', 409);
+        const available = Array.isArray(restoredSources) ? restoredSources : restoredSources?.sources;
+        const hasSource = (id, kind) => Array.isArray(available) && available.some(source => source.id === id && source.channels?.includes(kind));
+        if (!hasSource(payload.sourceId, 'screen')) throw unchangedVideoSourceError('The selected screen-share source is no longer available after handover', call.id, payload, requestId);
+        if (camera && !hasSource(camera.sourceId, 'camera')) throw unchangedVideoSourceError('The previously selected camera source is no longer available after handover', call.id, payload, requestId);
+        await hostRequest('/v1/video/send', { ...payload, requestId });
+        if (camera && upgrade.current()) await hostRequest('/v1/video/send', { callId: call.id, kind: 'camera',
+          sourceId: camera.sourceId, ...(camera.framing ? { framing: camera.framing } : {}), requestId: `restore:${createHash('sha256').update(requestId).digest('hex')}` });
+        for (const track of subscriptions) {
+          if (!upgrade.current()) break;
+          await hostRequest('/v1/video/subscribe', { callId: call.id, uid: track.uid, kind: track.kind });
+        }
+        if (upgrade.current()) call.media = 'screen';
+      },
+    });
+    upgrade.sourceId = payload.sourceId; screenUpgrade = upgrade; screenPreparation = null;
+    call.mediaTransition = { ...upgrade.progress }; callEvent();
+    await upgrade.start();
+    await upgrade.finished;
+    return describeVideo(await hostRequest('/v1/video/state'));
+  }
   function checkPrivateScreen(peerUid) {
     if (nativeQueries.size >= 32) throw new BridgeError('CAPACITY_REACHED', 'Too many pending native capability checks', 503);
     const requestId = `private-screen:${id()}`;
@@ -202,11 +333,11 @@ export function createController({ session, core, selfInfo, mediaEnabled = false
       };
       // Command 43 is a synchronous native capability read. Keep it below the
       // daemon's control HTTP deadline rather than leaving a late dial running.
-      const timer = setTimeout(() => fail(new BridgeError('NATIVE_CHECK_TIMEOUT', 'Peer screen-share capability check timed out; no call was started', 504)), Math.min(ackTimeoutMs, 2500));
+      const timer = setTimeout(() => fail(new BridgeError('NATIVE_CHECK_TIMEOUT', 'Native screen-share service check timed out; no call was started', 504)), Math.min(ackTimeoutMs, 2500));
       nativeQueries.set(requestId, { resolve, reject, timer });
       Promise.resolve().then(() => invokeHost(NATIVE.CHECK_PRIVATE_SCREEN, [peerUid], requestId)).then(result => {
-        if (!result?.posted || !Number.isInteger(result.id)) fail(new BridgeError('NATIVE_CHECK_FAILED', 'Peer screen-share check was not submitted; no call was started', 503));
-      }, () => fail(new BridgeError('NATIVE_CHECK_FAILED', 'Peer screen-share check failed; no call was started', 503)));
+        if (!result?.posted || !Number.isInteger(result.id)) fail(new BridgeError('NATIVE_CHECK_FAILED', 'Native screen-share check was not submitted; no call was started', 503));
+      }, () => fail(new BridgeError('NATIVE_CHECK_FAILED', 'Native screen-share check failed; no call was started', 503)));
     });
   }
   function watchAcknowledgement(requestId) {
@@ -219,7 +350,9 @@ export function createController({ session, core, selfInfo, mediaEnabled = false
       if (state.call?.id === entry.receipt.callId && pendingControl === requestId) {
         state.call.nativeAckTimedOut = true;
         state.call.nativeError = 'Native acknowledgement timed out; delivery and teardown remain unknown';
+        if ([NATIVE.CLOSE, NATIVE.QUIT].includes(entry.nativeCommand)) state.call.nativeTeardownUnknown = true;
         callEvent();
+        startCloseCheck(entry, 'ack-timeout');
       }
       emit('control.receipt', { receipt: entry.receipt });
     }, ackTimeoutMs);
@@ -290,7 +423,7 @@ export function createController({ session, core, selfInfo, mediaEnabled = false
           for (const requestId of requests.keys()) clearAckTimer(requestId);
           if (state.call && state.call.phase !== 'ended') {
             state.call = { ...state.call, phase: 'ended', endedAt: now(), acceptReady: false,
-              nativeTeardownUnknown: false, nativeAckTimedOut: false,
+              nativeTeardownUnknown: false, nativeAckTimedOut: false, nativeError: null,
               nativeEndEvent: 'host.restarted', remoteEndedConfirmed: false };
             callEvent();
           }
@@ -407,6 +540,7 @@ export function createController({ session, core, selfInfo, mediaEnabled = false
     if (!mediaEnabled) throw new BridgeError('MEDIA_DISABLED', 'Native media transport is disabled', 409);
     const { command, value, requestId } = body ?? {};
     if (!Number.isInteger(command)) throw new BridgeError('INVALID_OUTPUT', 'Missing native command');
+    if (screenUpgrade?.handle(command, value, requestId, decodeObservation(command, value, host?.nativeProfile?.id))) return;
     if (command === NATIVE.CHATTING_ROOM) {
       if (closeCheck && closeCheck.requestId === requestId && typeof requestId === 'string') closeCheck.accept(value);
     } else if (command === NATIVE.CHECK_PRIVATE_SCREEN) {
@@ -484,6 +618,7 @@ export function createController({ session, core, selfInfo, mediaEnabled = false
           !(state.call?.phase === 'joining' && state.call.nativeStartAcknowledged)) return;
       if (!Array.isArray(value) || !Number.isInteger(value[0])) throw new BridgeError('INVALID_OUTPUT', 'Unknown room result shape');
       state.call.phase = value[0] === 0 ? 'connected' : 'error';
+      if (value[0] === 0) state.call.nativeConnectedAt ??= now();
       // DAV may never emit a MAV room roster. Its connected peer is already
       // identified by the validated invite or the explicit UID/UIN dial target.
       // Seed once at connection, never reauthorize after a later leave/snapshot.
@@ -657,7 +792,7 @@ export function createController({ session, core, selfInfo, mediaEnabled = false
         }
         if (stopped || checkedBootId !== lastHostBootId || capabilities().capabilities['private.screenDial'].status !== 'supported') throw new BridgeError('NATIVE_CHECK_FAILED', 'Native session changed during the screen-share check; no call was started', 503);
         if (state.call && (!['ended', 'error'].includes(state.call.phase) || state.call.nativeTeardownUnknown)) throw new BridgeError('CALL_STATE_CONFLICT', 'A call became active during the screen-share check', 409);
-        if (!supported) throw new BridgeError('PEER_SCREEN_UNSUPPORTED', 'QQ reports that this peer cannot join a private screen-share session', 409);
+        if (!supported) throw new BridgeError('PEER_SCREEN_UNSUPPORTED', 'The native QQ screen-share service is unavailable', 409);
       }
       if (requests.size >= 10000) throw new BridgeError('CAPACITY_REACHED', 'Drain calls before restarting the bridge', 503);
       nativeCommand = NATIVE.START_CALL;
@@ -738,6 +873,7 @@ export function createController({ session, core, selfInfo, mediaEnabled = false
       if (receipt.status === 'submitted') receipt.status = 'unknown';
       // Keep the call reserved after uncertain delivery; callers must reconcile native events.
       state.lastError = 'Control submission result is unknown; not retried.';
+      if (receipt.status === 'unknown') startCloseCheck(requests.get(body.requestId), 'submission-unknown');
     }
     emit('control.receipt', { receipt });
     return snapshot(receipt);
@@ -809,6 +945,7 @@ export function createController({ session, core, selfInfo, mediaEnabled = false
   }
   async function stop() {
     stopped = true; clearTimeout(loginTimer); cancelCloseCheck();
+    screenUpgrade?.cancel('Bridge stopped during screen-share handover'); screenUpgrade = null;
     cancelNativeQueries('BRIDGE_STOPPED', 'Bridge stopped during the capability check; no call was started');
     for (const requestId of requests.keys()) clearAckTimer(requestId);
     if (listenerId !== null) {
@@ -820,13 +957,21 @@ export function createController({ session, core, selfInfo, mediaEnabled = false
   async function video(operation, body = {}) {
     if (!mediaEnabled || typeof hostRequest !== 'function') throw new BridgeError('VIDEO_UNAVAILABLE', 'AV Host video transport is unavailable', 503);
     if (!body || typeof body !== 'object' || Array.isArray(body)) throw new BridgeError(operation === 'write' ? 'INVALID_VIDEO' : 'INVALID_REQUEST', 'Expected a JSON object');
-    if (!['session', 'state', 'sources', 'frame', 'subscribe', 'unsubscribe', 'send', 'stop', 'write'].includes(operation)) throw new BridgeError('NOT_FOUND', 'Unknown video operation', 404);
+    if (!['session', 'state', 'sources', 'frame', 'subscribe', 'unsubscribe', 'send', 'stop', 'cancel', 'write'].includes(operation)) throw new BridgeError('NOT_FOUND', 'Unknown video operation', 404);
+    // A source catalogue is read-only and is also useful before dialing. Do not
+    // establish/clear a media session as a side effect of opening this picker.
+    if (operation === 'sources' && body.callId === undefined) return hostRequest('/v1/video/sources');
     const passive = ['state', 'sources', 'session'].includes(operation);
     const call = state.call;
     if (operation === 'sources' && (!call || call.phase !== 'connected' || (body.callId !== undefined && body.callId !== call.id))) throw new BridgeError('CALL_STATE_CONFLICT', 'Video sources require the current connected call', 409);
     const cleanup = ['unsubscribe', 'stop'].includes(operation) && call && body.callId === call.id && ['ending', 'ended', 'error'].includes(call.phase);
-    if (!passive && !cleanup && (!call || call.phase !== 'connected' || body.callId !== call.id)) throw new BridgeError('CALL_STATE_CONFLICT', 'The requested call is not connected', 409);
+    const cancellation = operation === 'cancel' && call && body.callId === call.id;
+    if (!passive && !cleanup && !cancellation && (!call || call.phase !== 'connected' || body.callId !== call.id)) throw new BridgeError('CALL_STATE_CONFLICT', 'The requested call is not connected', 409);
     const payload = { callId: call?.phase === 'connected' ? call.id : null };
+    if (operation === 'cancel' && body.targetRequestId !== undefined) {
+      if (typeof body.targetRequestId !== 'string' || !/^[A-Za-z0-9._:-]{1,128}$/.test(body.targetRequestId)) throw new BridgeError('INVALID_REQUEST', 'targetRequestId must identify the pending screen send');
+      payload.targetRequestId = body.targetRequestId;
+    }
     if (operation === 'write') {
       if (!['camera', 'screen'].includes(body.kind) || body.encoding !== 'jpeg' ||
           !Number.isInteger(body.width) || body.width < 1 || body.width > 4096 ||
@@ -863,7 +1008,7 @@ export function createController({ session, core, selfInfo, mediaEnabled = false
         }
       }
     }
-    const mutation = ['subscribe', 'unsubscribe', 'send', 'stop'].includes(operation);
+    const mutation = ['subscribe', 'unsubscribe', 'send', 'stop', 'cancel'].includes(operation);
     if (mutation && (typeof body.requestId !== 'string' || !/^[A-Za-z0-9._:-]{1,128}$/.test(body.requestId))) throw new BridgeError('INVALID_REQUEST', 'requestId is required');
     const fingerprint = mutation ? JSON.stringify([operation, body.callId ?? null, payload]) : null;
     const previous = mutation ? videoRequests.get(body.requestId) : null;
@@ -873,6 +1018,33 @@ export function createController({ session, core, selfInfo, mediaEnabled = false
     }
     if (mutation && videoRequests.size >= 10000) throw new BridgeError('CAPACITY_REACHED', 'Drain calls before restarting the bridge', 503);
     const execute = async () => {
+      if (operation === 'cancel' && payload.targetRequestId) cancelScreenSend(call.id, payload.targetRequestId);
+      if (operation === 'send' && payload.kind === 'screen' && call.nativeSceneId === 1 && screenSendCancelled(call.id, body.requestId)) {
+        throw new BridgeError('SCREEN_UPGRADE_CANCELLED', 'This screen-share request was cancelled before handover', 409);
+      }
+      if (operation === 'cancel' && (!payload.targetRequestId ||
+          payload.targetRequestId !== screenPreparation?.requestId && payload.targetRequestId !== screenUpgrade?.requestId)) {
+        return describeVideo(await hostRequest('/v1/video/state'));
+      }
+      if (screenPreparation && !['state', 'session', 'sources'].includes(operation)) {
+        if (operation === 'cancel' || operation === 'stop' && payload.kind === 'screen') {
+          screenPreparation.cancelled = true;
+          return describeVideo(await hostRequest('/v1/video/state'));
+        }
+        throw new BridgeError('MEDIA_TRANSITION', 'QQ is preparing a screen-share handover', 409);
+      }
+      if (screenUpgrade?.active && !['state', 'session', 'sources'].includes(operation)) {
+        if (operation === 'cancel' || operation === 'stop' && payload.kind === 'screen') {
+          screenUpgrade.fail(new BridgeError('SCREEN_UPGRADE_CANCELLED', 'Screen sharing was stopped during the handover; native call cleanup may be needed', 409));
+          await syncVideoSession();
+          if (state.call === call && call.phase === 'connected') {
+            return describeVideo(await hostRequest('/v1/video/stop', { ...payload, kind: 'screen', requestId: body.requestId }));
+          }
+          return describeVideo(await hostRequest('/v1/video/state'));
+        }
+        throw new BridgeError('MEDIA_TRANSITION', 'QQ is switching the current call to screen sharing', 409);
+      }
+      if (operation === 'cancel') return describeVideo(await hostRequest('/v1/video/state'));
       await syncVideoSession();
       if (cleanup) {
         if (state.call?.id !== call.id || state.call.phase === 'connected') throw new BridgeError('CALL_STATE_CONFLICT', 'Call changed while clearing video', 409);
@@ -880,15 +1052,23 @@ export function createController({ session, core, selfInfo, mediaEnabled = false
       }
       if ((!passive || operation === 'sources') && (state.call?.id !== call.id || state.call.phase !== 'connected')) throw new BridgeError('CALL_STATE_CONFLICT', 'Call ended while synchronizing video', 409);
       if (operation === 'subscribe' && !state.call.participants.some(member => member.uid === payload.uid)) throw new BridgeError('INVALID_TARGET', 'Video target left the call');
-      if (operation === 'session' || operation === 'state') return hostRequest('/v1/video/state');
+      if (operation === 'session' || operation === 'state') return describeVideo(await hostRequest('/v1/video/state'));
       if (operation === 'sources') return hostRequest(`/v1/video/sources?${new URLSearchParams({ callId: payload.callId })}`);
       if (operation === 'frame') return hostRequest(`/v1/video/frame?${new URLSearchParams({ callId: payload.callId, trackId: payload.trackId })}`);
       // Frames are transient. Host owns bounded sequence/backpressure state;
       // never retain JPEGs in the long-lived control idempotency ledger.
       if (operation === 'write') return hostRequest('/v1/video/write', payload);
+      if (operation === 'send' && payload.kind === 'screen' && call.kind === 'private' && call.nativeSceneId === 1) return beginScreenUpgrade(call, payload, body.requestId);
       return hostRequest(`/v1/video/${operation}`, { ...payload, requestId: body.requestId });
     };
-    const promise = execute();
+    const promise = execute().catch(error => {
+      // A restored camera may fail after the requested screen already started.
+      // Never forward that camera's proof as if the outer screen were unchanged.
+      const evidence = error?.videoSendFailure;
+      if (evidence && (operation !== 'send' || evidence.requestId !== body.requestId || evidence.callId !== body.callId ||
+          evidence.kind !== body.kind || evidence.sourceId !== body.sourceId || !['unchanged', 'stopped'].includes(evidence.outcome))) delete error.videoSendFailure;
+      throw error;
+    });
     if (mutation) videoRequests.set(body.requestId, { fingerprint, promise });
     return promise;
   }

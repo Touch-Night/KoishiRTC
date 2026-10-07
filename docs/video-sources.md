@@ -71,6 +71,8 @@ Linux 的设备输出明确使用 **NV12**，输入协议仍接受 RGBA 或 I420
 
 worker 启动会核对 `camera.native_fmt` 确实为 NV12，`ready` 报告原输入 `pixelFormat`、`outputPixelFormat: 'nv12'`、`nativePixelFormat: 'nv12'` 和 `rgba-to-nv12` / `i420-to-nv12`。回执字节数仍按输入格式计算。RGB 输入在 pyvirtualcam Linux 后端会自动变成 I420；本次精确 Linux QQ 客户端的 I420 捕获 shader 缺失、NV12 shader 存在，因此这条兼容路径显式绕开 I420 设备输出。
 
+Linux 启动还会使用只读 `VIDIOC_G_FMT` 核对内核实际接受的尺寸、像素格式、逐行扫描方式、`bytesperline` 和 `sizeimage`，并在 `ready.nativeLayout` 返回这些数值。pyvirtualcam 0.15 的 `native_fmt` 只反映后端选择，不能证明设备没有保留旧格式。当前后端按紧凑 NV12 写入；如果设备锁定了不同尺寸或行跨度，会在送帧前明确报错，避免短写或未覆盖的色度尾部继续成为损坏画面。映射缓冲区的普通页尾填充与 `sizeimage` 不同，不会仅因页尾填充被这一检查拒绝。此检查本身不代表 QQ 编解码后远端画面已验收。
+
 此前 2026-10-06 本机 `/dev/video42` 的 640×360、15 fps、10 秒 RGBA 输入测试曾得到 150 帧本地提交、零丢帧/失败；它发生在旧 I420 设备输出路径，不能作为 NV12 或远端视频已通过的证据。NV12 转换已做真实 NumPy 的颜色、2×2 降采样及内存布局离线测试；真实 QQ 复测另行记录。
 
 ## QQ 安装副本与外部帧配置

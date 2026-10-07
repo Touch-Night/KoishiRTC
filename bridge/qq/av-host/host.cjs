@@ -7,9 +7,11 @@ const fs = require("node:fs");
 const http = require("node:http");
 const path = require("node:path");
 const { app, BrowserWindow, ipcMain, desktopCapturer, systemPreferences } = require("electron");
+const { createVideoOutputWindow } = require('./output-window.cjs');
 
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1", "localhost"]);
 const PROFILES = require('./profiles.cjs');
+const { nativeProcessIds, createNativeHealth, isNativePlugin } = require('./native-health.cjs');
 const ALLOWED_COMMANDS = new Set(process.platform === 'linux' ? [1, 5, 55] : [1, 55]);
 const invocations = new Map();
 const requestByNativeId = new Map();
@@ -55,6 +57,8 @@ function loadSettings(env = process.env) {
 
 const settings = loadSettings();
 let nativeProfile = null;
+let nativeVideoPatch = null;
+let nativeLibraryPath = settings.avsdkPath;
 let controlToken = null;
 let avWindow = null;
 let controlServer = null;
@@ -63,6 +67,7 @@ let nextInternalId = -1;
 let audioRouter = null, windowsRoute = null, audioPoll = null;
 let video = null, videoTestWindow = null;
 let nativeFailure = null;
+let nativeHealthPoll = null, recoveryTimer = null, quitting = false;
 let rendererState = {
   ready: false,
   pluginFound: false,
@@ -87,7 +92,15 @@ function invalidateNative(kind, details = {}) {
   rendererState = { ...rendererState, ready: false, pluginFound: false,
     nativeFailure, error: `Native process unavailable (${kind}); restart the AV Host` };
   audioRouter?.stop(); windowsRoute?.close(); clearInterval(audioPoll); audioPoll = null;
-  if (video) { video.enabled = false; void video.clear(); }
+  if (video) { video.enabled = false; void video.clear().catch(error => console.error(`[KoishiRTCQQAVHost] media cleanup: ${error.message}`)); }
+  // Only our supervised, isolated AV Host may exit for automatic recovery.
+  // The NapCat account process stays logged in; its controller reconciles the
+  // old room only after it sees the replacement Host's distinct boot ID.
+  if (!quitting && !recoveryTimer && process.env.KOISHI_RTC_QQ_AV_HOST_SUPERVISED === '1') {
+    console.error(`[KoishiRTCQQAVHost] ${kind}: ${nativeFailure.reason}; restarting isolated media Host`);
+    recoveryTimer = setTimeout(() => { recoveryTimer = null; app.quit(); }, 1000);
+    recoveryTimer.unref?.();
+  }
 }
 
 function loadControlToken() {
@@ -146,6 +159,7 @@ function startControlServer() {
           bootId,
           bufferedKernelOutputs: startupKernelOutputs.length,
           nativeProfile,
+          nativeVideoPatch,
           audioRouting: audioRouter?.status() ?? windowsRoute?.status() ?? { required: false, ready: null },
           routeReady: audioRouter?.status().ready ?? windowsRoute?.status().ready ?? null,
           video: video?.state() ?? { supported: false },
@@ -154,6 +168,7 @@ function startControlServer() {
       });
     }
     if (url.pathname.startsWith('/v1/video/')) {
+      let videoRequestBody;
       try {
         if (!video?.enabled || nativeFailure) throw new Error('Video is unavailable for this native Host');
         const operation = url.pathname.slice('/v1/video/'.length);
@@ -168,12 +183,19 @@ function startControlServer() {
         else if (req.method === 'GET' && operation === 'sources') data = await video.sources({ callId: url.searchParams.get('callId') });
         else if (req.method === 'GET' && operation === 'frame') data = await video.frame({ callId: url.searchParams.get('callId'), trackId: url.searchParams.get('trackId') });
         else if (req.method === 'POST' && operation === 'write') data = await video.write(await readJsonBody(req, 384 * 1024));
-        else if (req.method === 'POST' && operation === 'send') data = await video.startSend(await readJsonBody(req, 64 * 1024));
+        else if (req.method === 'POST' && operation === 'send') { videoRequestBody = await readJsonBody(req, 64 * 1024); data = await video.startSend(videoRequestBody); }
         else if (req.method === 'POST' && operation === 'stop') data = await video.stopSend(await readJsonBody(req, 64 * 1024));
         else if (req.method === 'POST' && ['session', 'subscribe', 'unsubscribe'].includes(operation)) data = await video[operation](await readJsonBody(req, 64 * 1024));
         else return sendJson(res, 404, { code: -1, message: 'Unknown video operation' });
         return sendJson(res, 200, { code: 0, data });
-      } catch (error) { return sendJson(res, 409, { code: -1, message: error.message, errorCode: error.code }); }
+      } catch (error) {
+        const proof = error.videoSendFailure, expected = videoRequestBody;
+        const verified = proof && expected && typeof proof.requestId === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(proof.requestId) && proof.requestId === expected.requestId &&
+          typeof proof.callId === 'string' && proof.callId.length <= 1024 && proof.callId === expected.callId && ['camera', 'screen'].includes(proof.kind) && proof.kind === expected.kind &&
+          typeof proof.sourceId === 'string' && proof.sourceId.length <= 2048 && proof.sourceId === expected.sourceId && ['unchanged', 'stopped'].includes(proof.outcome);
+        return sendJson(res, 409, { code: -1, message: error.message, errorCode: error.code,
+          ...(verified ? { videoSendFailure: { requestId: proof.requestId, callId: proof.callId, kind: proof.kind, sourceId: proof.sourceId, outcome: proof.outcome } } : {}) });
+      }
     }
     if (req.method === 'GET' && url.pathname === '/v1/audio/devices' && windowsRoute) {
       try { return sendJson(res, 200, { code: 0, data: await windowsRoute.devices() }); }
@@ -302,7 +324,7 @@ ipcMain.on('koishi-rtc-qq-avsdk-crash', (_event) => {
   if (_event.sender === avWindow?.webContents) invalidateNative('plugin-crash');
 });
 app.on('child-process-gone', (_event, details = {}) => {
-  if (/pepper|ppapi|plugin/i.test(details.type ?? '')) invalidateNative('ppapi-process-gone', details);
+  if (isNativePlugin(details.type)) invalidateNative('ppapi-process-gone', details);
 });
 
 ipcMain.on("koishi-rtc-qq-avsdk-message", () => {
@@ -386,6 +408,14 @@ try {
   if (nativeProfile?.platform === 'linux') ALLOWED_COMMANDS.add(57);
   if (nativeProfile?.privateScreen) ALLOWED_COMMANDS.add(43);
 } catch { /* Unknown profiles keep the upstream-only command/observation boundary. */ }
+if (nativeProfile) {
+  // Patch only a generated copy after exact profile verification. Any patch
+  // integrity failure aborts startup instead of loading a partially edited SDK.
+  const { prepareNativeVideoLibrary } = require('./native-shader-patch.cjs');
+  const prepared = prepareNativeVideoLibrary({ originalPath: settings.avsdkPath,
+    cacheRoot: path.join(settings.bridgeDir, 'runtime', 'native-video'), profile: nativeProfile });
+  nativeLibraryPath = prepared.path; nativeVideoPatch = prepared.patch;
+}
 if (nativeProfile && process.platform === 'darwin') {
   const { createMacAudioRouter } = require('../macos/audio-route.cjs');
   audioRouter = createMacAudioRouter({ send: (command, params) => postInternal(command, nextInternalId--, params),
@@ -399,10 +429,14 @@ if (nativeProfile && process.platform === 'win32') {
 controlToken = loadControlToken();
 app.commandLine.appendSwitch(
   "register-pepper-plugins",
-  `${settings.avsdkPath};application/x-ppapi-avSDK`,
+  `${nativeLibraryPath};application/x-ppapi-avSDK`,
 );
 if (process.platform === 'win32') app.commandLine.appendSwitch('allow-command-line-plugins');
 app.commandLine.appendSwitch("disable-gpu");
+// Native layout command 54 uses physical rectangles with a 100% scale. Keep
+// this isolated host at 1x even on a HiDPI desktop; other applications retain
+// their own display scale.
+app.commandLine.appendSwitch('force-device-scale-factor', '1');
 app.commandLine.appendSwitch("no-sandbox");
 app.setPath("userData", path.join(settings.bridgeDir, "runtime", "av-host-profile"));
 
@@ -418,6 +452,7 @@ app.whenReady()
         plugins: true,
         sandbox: false,
         backgroundThrottling: false,
+        zoomFactor: 1,
       },
     });
     avWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
@@ -426,6 +461,13 @@ app.whenReady()
       invalidateNative('renderer-process-gone', details);
     });
     await avWindow.loadFile(path.join(__dirname, "host.html"));
+    const nativeHealth = createNativeHealth({
+      read: () => nativeProcessIds({ app, fs, platform: process.platform, pid: process.pid }),
+      onGone: invalidateNative,
+    });
+    nativeHealth.check();
+    nativeHealthPoll = setInterval(() => nativeHealth.check(), 1000);
+    nativeHealthPoll.unref?.();
     const { VideoHost } = require('./video.cjs');
     const { DesktopVideo, ownedWindowHandle } = require('./desktop-video.cjs');
     const desktopVideo = new DesktopVideo({ BrowserWindow, desktopCapturer, systemPreferences });
@@ -439,7 +481,7 @@ app.whenReady()
       permissions: () => desktopVideo.status(),
       testWindow: async () => {
         if (!videoTestWindow || videoTestWindow.isDestroyed()) {
-          videoTestWindow = new BrowserWindow({ width: 640, height: 360, show: false, title: 'Koishi RTC · Video Test', webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } });
+          videoTestWindow = createVideoOutputWindow(BrowserWindow, { title: 'Koishi RTC · Video Test' });
           videoTestWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
           await videoTestWindow.loadFile(path.join(__dirname, 'video-test.html'));
           videoTestWindow.showInactive();
@@ -448,10 +490,12 @@ app.whenReady()
       },
       closeTestWindow: () => { if (videoTestWindow && !videoTestWindow.isDestroyed()) videoTestWindow.destroy(); videoTestWindow = null; },
       surface: async (width, height) => {
-        avWindow.setContentSize(width, height);
-        await avWindow.webContents.executeJavaScript(`window.koishiRTCQQVideoSurface(${width},${height})`);
+        const [currentWidth, currentHeight] = avWindow.getContentSize();
+        if (currentWidth !== width || currentHeight !== height) avWindow.setContentSize(width, height);
         avWindow.showInactive();
+        await avWindow.webContents.executeJavaScript(`window.koishiRTCQQVideoSurface(${width},${height})`);
       },
+      present: (width, height) => avWindow.webContents.executeJavaScript(`window.koishiRTCQQVideoPresent(${width},${height})`),
       capture: () => avWindow.webContents.capturePage(undefined, { stayHidden: false, stayAwake: true }),
     });
     startControlServer();
@@ -462,7 +506,9 @@ app.whenReady()
   });
 
 app.on('before-quit', () => {
-  if (video) { video.enabled = false; void video.clear(); }
+  quitting = true;
+  clearInterval(nativeHealthPoll); clearTimeout(recoveryTimer);
+  if (video) { video.enabled = false; void video.clear().catch(error => console.error(`[KoishiRTCQQAVHost] media cleanup: ${error.message}`)); }
   audioRouter?.stop(); windowsRoute?.close(); clearInterval(audioPoll);
   controlServer?.close();
 });

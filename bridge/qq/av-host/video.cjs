@@ -5,11 +5,13 @@ const sourceType = { camera: 1, screen: 2 };
 const key = (uid, kind) => `${uid}:${kind}`;
 /** QQ owns decoding. We capture only its dedicated render surface, never a desktop. */
 class VideoHost {
-  constructor({ send, surface, capture, listWindows = async () => [], testWindow, closeTestWindow = () => {}, captureSource = null, closeCapture = async () => {}, ensurePermission = async () => {}, permissions = () => ({}), outputBackend = null, enabled = false, now = Date.now }) {
-    Object.assign(this, { send, surface, capture, listWindows, testWindow, closeTestWindow, captureSource, closeCapture, ensurePermission, permissions, enabled, now });
+  constructor({ send, surface, capture, present = async () => {}, listWindows = async () => [], testWindow, closeTestWindow = () => {}, captureSource = null, closeCapture = async () => {}, ensurePermission = async () => {}, permissions = () => ({}), outputBackend = null, enabled = false, now = Date.now }) {
+    Object.assign(this, { send, surface, capture, present, listWindows, testWindow, closeTestWindow, captureSource, closeCapture, ensurePermission, permissions, enabled, now });
     this.sessionId = null; this.nativeSceneId = null; this.selfUid = null; this.members = new Set(); this.tracks = new Map();
     this.frameChannels = new Map(); this.outputBackend = outputBackend;
     this.generation = 0; this.sessionVersion = 0; this.sequence = 0; this.layoutVersion = 0; this.captureJob = null;
+    this.readyLayoutVersion = null; this.receiveSurface = null;
+    this.nativeLayoutDirty = false;
     this.sending = {}; this.lastError = null; this.pending = new Map(); this.nextId = -2000000; this.sourcesById = new Map(); this.controlTail = Promise.resolve(); this.uncertainCommands = new Set(); this.cleanupError = null;
   }
   require(callId) {
@@ -42,7 +44,7 @@ class VideoHost {
     });
   }
   state() {
-    return { permissions: this.permissions(), supported: this.enabled && !this.cleanupError, sendSupported: this.enabled && !this.cleanupError, shareScreenSupported: this.enabled && !this.cleanupError && !!this.testWindow && (!this.sessionId || [2, 3].includes(this.nativeSceneId)), sessionId: this.sessionId, tracks: [...this.tracks.values()].map(({ frame, rect, ...track }) => ({ ...track, hasFrame: !!frame })), sending: { ...this.sending }, cameraRequestedFormat: this.cameraRequestedFormat ?? null, lastError: this.cleanupError || this.lastError };
+    return { permissions: this.permissions(), supported: this.enabled && !this.cleanupError, sendSupported: this.enabled && !this.cleanupError, shareScreenSupported: this.enabled && !this.cleanupError && !!this.testWindow && (!this.sessionId || [2, 3].includes(this.nativeSceneId)), sessionId: this.sessionId, tracks: [...this.tracks.values()].map(({ frame, rect, ...track }) => ({ ...track, hasFrame: !!frame })), sending: { ...this.sending }, cameraRequestedFormat: this.cameraRequestedFormat ?? null, receiveSurface: this.receiveSurface ? { ...this.receiveSurface } : null, lastError: this.cleanupError || this.lastError };
   }
   handle(message) {
     const v = message?.value;
@@ -171,7 +173,17 @@ class VideoHost {
     const version = ++this.layoutVersion;
     // Native GL uses a fill rectangle. Match each decoded stream's aspect ratio
     // before supplying that rectangle, so portrait cameras are not center-cropped.
-    const width = 640, height = tracks.length > 1 ? 480 : 640, columns = tracks.length > 1 ? 2 : 1, rows = Math.ceil(tracks.length / columns);
+    let width = 640, height = tracks.length > 1 ? 480 : 640;
+    if (tracks.length === 1 && tracks[0].kind === 'screen') {
+      // Screen text needs more than a 640-pixel thumbnail. Preserve the decoded
+      // aspect ratio without upscaling or allocating an unbounded 4K surface.
+      const sourceWidth = tracks[0].width || 1280, sourceHeight = tracks[0].height || 720;
+      const scale = Math.min(1, 1280 / sourceWidth, 720 / sourceHeight);
+      width = Math.max(1, Math.floor(sourceWidth * scale)); height = Math.max(1, Math.floor(sourceHeight * scale));
+    }
+    const columns = tracks.length > 1 ? 2 : 1, rows = Math.ceil(tracks.length / columns);
+    this.readyLayoutVersion = null;
+    this.receiveSurface = { width, height, status: 'preparing', capturedWidth: null, capturedHeight: null };
     await this.surface(width, height);
     this.checkScope(scope);
     if (version !== this.layoutVersion) throw fail('STALE_VIDEO_LAYOUT', 'Video layout changed while preparing its surface');
@@ -181,29 +193,54 @@ class VideoHost {
       const w = Math.max(1, Math.floor(Math.min(slotWidth, slotHeight * ratio))), h = Math.max(1, Math.floor(w / ratio));
       tracks[i].rect = { x: Math.floor((i % columns) * slotWidth + (slotWidth - w) / 2), y: Math.floor(Math.floor(i / columns) * slotHeight + (slotHeight - h) / 2), width: w, height: h }; tracks[i].frame = null;
     }
+    // Set before posting: a lost submission response must still require native
+    // cleanup. A freshly constructed Host has no layout to tear down.
+    this.nativeLayoutDirty = true;
     await this.send(54, [tracks.length, tracks.map(t => t.uid), tracks.map(t => sourceType[t.kind]), tracks.map(t => { const r = t.rect; return `${r.x},${r.y},${r.x + r.width},${r.y + r.height}`; }), width, height, 100]);
     this.checkScope(scope);
+    // Native 54 has no completion ACK. Wait for the renderer's layout/paint
+    // boundary after posting it; decoded-size callbacks precede native paint.
+    await this.present(width, height);
+    this.checkScope(scope);
+    if (version !== this.layoutVersion) throw fail('STALE_VIDEO_LAYOUT', 'Video layout changed before presentation');
+    this.readyLayoutVersion = version; this.receiveSurface.status = 'ready';
   }
   async clearNativeLayout() {
+    this.readyLayoutVersion = null; this.receiveSurface = null;
     // Command 34 stops MAV receiving but leaves the GL UID/source cache intact.
     // An empty 54 layout removes every TexInfo, including its width and pixels,
     // so another call to the same peer must supply new decoded-frame evidence.
+    if (this.nativeLayoutDirty === false) return;
     await this.send(54, [0, [], [], [], 640, 640, 100]);
+    this.nativeLayoutDirty = false;
   }
   async frame({ callId, trackId }) {
     this.require(callId); const scope = this.scope(); await this.layoutJob;
     if (scope.generation !== this.generation || callId !== this.sessionId) return null;
     const track = this.tracks.get(trackId);
-    if (!track?.subscribed || !track.decodedFrameAt || track.available === false) return null;
+    if (!track?.subscribed || !track.decodedFrameAt || track.available === false || this.readyLayoutVersion !== this.layoutVersion) return null;
     if (track.frame && this.now() - track.frame.timestamp < 150) return track.frame;
     if (!this.captureJob) {
       const generation = this.generation, layout = this.layoutVersion, selected = [...this.tracks.values()].filter(t => t.subscribed && t.decodedFrameAt && t.available !== false);
       this.captureJob = (async () => {
         const image = await this.capture();
         if (generation !== this.generation || layout !== this.layoutVersion) return;
+        const capturedSize = image.getSize();
+        Object.assign(this.receiveSurface, { capturedWidth: capturedSize.width, capturedHeight: capturedSize.height });
+        // capturePage can still return the old compositor backing after resize.
+        // NativeImage crop/getSize both use DIP: do not multiply these rects by
+        // the host monitor's scale factor or crop a mismatched old surface.
+        if (capturedSize.width !== this.receiveSurface.width || capturedSize.height !== this.receiveSurface.height) {
+          for (const current of selected) current.frame = null;
+          this.receiveSurface.status = 'capture-size-mismatch'; return;
+        }
+        this.receiveSurface.status = 'captured';
         for (const current of selected) {
           if (this.tracks.get(current.id) !== current || !current.subscribed || current.available === false) continue;
-          const cropped = image.crop(current.rect), bytes = cropped.toJPEG(65), size = cropped.getSize();
+          const cropped = image.crop(current.rect), size = cropped.getSize();
+          if (size.width !== current.rect.width || size.height !== current.rect.height) continue;
+          let bytes = cropped.toJPEG(65);
+          for (const quality of [50, 35]) { if (bytes.length <= 256 * 1024) break; bytes = cropped.toJPEG(quality); }
           if (!bytes.length || bytes.length > 256 * 1024) continue;
           current.frame = { callId, trackId: current.id, participantId: current.uid, kind: current.kind, encoding: 'jpeg', width: size.width, height: size.height, sequence: this.sequence++, timestamp: this.now(), evidence: current.frameEvidence, data: bytes.toString('base64') };
         }
@@ -229,14 +266,22 @@ class VideoHost {
   }
   serial(work) { const task = this.controlTail.catch(() => {}).then(work); this.controlTail = task; return task; }
   async sources({ callId }) {
-    callId ??= this.sessionId;
-    this.require(callId);
+    // Enumerating names is also useful before dialling. It neither opens a
+    // camera nor captures a window, and must not attach to a call that starts
+    // while asynchronous desktop discovery is still running.
+    const expectedCall = this.sessionId, generation = this.generation;
+    const check = () => {
+      if (!this.enabled) throw fail('VIDEO_UNAVAILABLE', 'Video source discovery is unavailable');
+      if (this.cleanupError) throw fail('VIDEO_CLEANUP_UNKNOWN', this.cleanupError);
+      if (callId) this.require(callId);
+      if (generation !== this.generation || expectedCall !== this.sessionId) throw fail('STALE_CALL', 'Video session changed during source discovery');
+    };
+    check();
     return this.serial(async () => {
-      this.require(callId); const generation = this.generation;
+      check();
       const cameras = await this.native(46, [true]);
       let timeout;
-      const windows = await Promise.race([this.listWindows().catch(error => { this.lastError = error.message; return []; }), new Promise(resolve => { timeout = setTimeout(() => resolve([]), 2000); })]).finally(() => clearTimeout(timeout)); this.require(callId);
-      if (generation !== this.generation) throw fail('STALE_CALL', 'Video session changed');
+      const windows = await Promise.race([this.listWindows().catch(error => { this.lastError = error.message; return []; }), new Promise(resolve => { timeout = setTimeout(() => resolve([]), 2000); })]).finally(() => clearTimeout(timeout)); check();
       const available = new Map();
       if (Array.isArray(cameras[2]) && Array.isArray(cameras[3]) && cameras[2].length === cameras[3].length) {
         for (let i = 0; i < Math.min(64, cameras[2].length); i++) {
@@ -246,33 +291,53 @@ class VideoHost {
         }
       }
       for (const window of windows.slice(0, 128)) if (typeof window.id === 'string' && (typeof window.captureId === 'string' && this.captureSource || Number.isSafeInteger(window.handle) && window.handle > 0)) available.set(window.id, { ...window, kind: 'screen', sourceType: window.sourceType === 'display' ? 'display' : 'window', channels: ['screen'] });
-      if (this.testWindow) available.set('test-pattern', { id: 'test-pattern', name: '动态测试画面（不捕获桌面）', kind: 'screen', sourceType: 'generated', channels: ['screen'], generated: true });
       const channels = this.outputs().cameraAvailable() ? ['screen', 'camera'] : ['screen'];
+      const generatedChannels = channels.filter(channel => channel === 'camera' || !!this.testWindow);
+      if (generatedChannels.length) available.set('test-pattern', { id: 'test-pattern', name: '动态测试画面（不捕获摄像头或桌面）', kind: generatedChannels[0], sourceType: 'generated', channels: generatedChannels, generated: true });
       available.set('external-frames', { id: 'external-frames', name: '插件提供的视频帧', kind: 'screen', sourceType: 'frames', channels });
       this.sourcesById = available;
       return [...available.values()].flatMap(({ id, name, kind, sourceType, channels }) => (channels || [kind]).map(channel => ({ id, name, kind: channel, sourceType, channels })));
     });
   }
-  async startSend({ callId, kind, sourceId, framing }) {
+  async startSend({ callId, kind, sourceId, framing, requestId }) {
     this.require(callId);
-    if (framing !== undefined && (!['full', 'portrait-safe'].includes(framing) || kind !== 'camera' || sourceId !== 'external-frames')) throw fail('INVALID_SOURCE', 'Framing is only supported for explicitly supplied camera frames');
+    const sourceError = message => {
+      const error = fail('INVALID_SOURCE', message);
+      // Sign only a source preflight rejection in the authenticated current
+      // session. A native error or a failed cleanup is not unchanged evidence.
+      if (['camera', 'screen'].includes(kind) && typeof sourceId === 'string' && sourceId.length > 0 && sourceId.length <= 2048 &&
+          typeof requestId === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(requestId)) {
+        error.videoSendFailure = { requestId, callId, kind, sourceId, outcome: 'unchanged' };
+      }
+      return error;
+    };
+    if (framing !== undefined && (!['full', 'portrait-safe'].includes(framing) || kind !== 'camera' || sourceId !== 'external-frames')) throw sourceError('Framing is only supported for explicitly supplied camera frames');
     return this.serial(async () => {
       this.require(callId);
       if (kind === 'screen' && ![2, 3].includes(this.nativeSceneId)) throw fail('VIDEO_SCENE_UNSUPPORTED', 'Start a private screen-share call or use a group call before sharing a screen');
       const generation = this.generation, scene = this.nativeSceneId, source = this.sourcesById.get(sourceId);
-      if (!source || !['camera', 'screen'].includes(kind) || !(source.channels || [source.kind]).includes(kind)) throw fail('INVALID_SOURCE', 'Choose an explicitly enumerated video source');
+      if (!source || !['camera', 'screen'].includes(kind) || !(source.channels || [source.kind]).includes(kind)) throw sourceError('Choose an explicitly enumerated video source');
       if (this.sending[kind]?.state === 'sending' && this.sending[kind].sourceId === sourceId && (this.sending[kind].framing ?? 'full') === (framing ?? 'full')) return this.state();
       this.closeFrames(kind);
       const current = { sourceId, state: 'starting', ...(kind === 'camera' && sourceId === 'external-frames' ? { framing: framing ?? 'full' } : {}) }; this.sending[kind] = current;
-      const check = () => { this.require(callId); if (generation !== this.generation) throw fail('STALE_CALL', 'Video session changed'); };
+      const check = () => { this.require(callId); if (generation !== this.generation) throw fail('STALE_CALL', 'Video session changed'); if (current.state === 'failed') throw fail('NATIVE_VIDEO_ERROR', current.error); };
       try {
         await this.ensurePermission(kind); check();
         if (kind === 'camera') {
           // A live camera core ignores a newly supplied device. Always release it first.
           await this.native(49, []); check();
+          await this.outputBackend?.close('camera'); check();
           let device = source.device;
-          if (source.sourceType === 'frames') {
-            const output = await this.outputs().open(kind, callId, { framing: framing ?? 'full' }); check();
+          if (source.sourceType === 'frames' || source.generated) {
+            const onError = error => {
+              if (generation !== this.generation || this.sending[kind] !== current || current.state === 'failed') return;
+              const wasSending = current.state === 'sending';
+              current.state = 'failed'; current.error = error.message; this.lastError = error.message;
+              // Startup errors are cleaned up by this operation's catch below.
+              if (wasSending) void this.serial(async () => { if (generation === this.generation && this.sending[kind] === current) await this.stopNative(kind, scene); }).catch(cleanup => { this.cleanupError = cleanup.message; });
+            };
+            const options = source.generated ? { generated: true, onError } : { framing: framing ?? 'full' };
+            const output = await this.outputs().open(kind, callId, options); check();
             const cameras = await this.native(46, [true]); check();
             const index = Array.isArray(cameras[3]) ? cameras[3].indexOf(output.nativeDeviceId) : -1;
             if (index < 0) throw fail('VIRTUAL_CAMERA_NOT_FOUND', 'QQ did not enumerate the configured virtual camera after its producer started');
@@ -284,7 +349,9 @@ class VideoHost {
         } else {
           await this.native(36, [1], [1]); check();
           await this.native(45, []); check();
-          await this.closeCapture(); check();
+          // Release the previous source only after native capture has stopped.
+          // Switching away from supplied frames must also close its render window.
+          await this.closeLocal('screen'); check();
           const sourceFailed = error => {
             if (generation !== this.generation || this.sending[kind] !== current) return;
             current.state = 'failed'; current.error = error.message; this.lastError = error.message;
@@ -324,13 +391,26 @@ class VideoHost {
     this.closeFrames(kind);
     try {
     if (kind === 'camera') { try { await this.native(31, [], nativeSceneId === 1 ? [0] : [1]); } finally { await this.native(49, []); } }
-    else { try { await this.native(36, [1], [1]); } finally { try { await this.native(45, []); } finally { this.closeTestWindow(); } } }
-    } finally { if (kind === 'screen') await this.closeCapture(); await this.outputBackend?.close(kind); }
+    else { try { await this.native(36, [1], [1]); } finally { await this.native(45, []); } }
+    } finally { await this.closeLocal(kind); }
+  }
+  async closeLocal(kind) {
+    this.closeFrames(kind);
+    try { if (kind === 'screen') await this.closeCapture(); }
+    finally {
+      try { if (kind === 'screen') this.closeTestWindow(); }
+      finally { await this.outputBackend?.close(kind); }
+    }
   }
   async stopSend({ callId, kind }) {
     this.require(callId); if (!['camera', 'screen'].includes(kind)) throw fail('INVALID_SOURCE', 'Unknown video kind');
     return this.serial(async () => {
-      this.require(callId); if (this.sending[kind]) this.sending[kind].state = 'stopping';
+      this.require(callId);
+      // A rejected preflight never started native capture. Repeated stop must
+      // not invoke QQ's stop APIs for a nonexistent channel. Failed/starting
+      // entries remain eligible for cleanup, especially after a lost ACK.
+      if (!this.sending[kind] && !this.frameChannels.has(kind)) { await this.closeLocal(kind); return this.state(); }
+      if (this.sending[kind]) this.sending[kind].state = 'stopping';
       try { await this.stopNative(kind); delete this.sending[kind]; }
       catch (error) { this.sending[kind] = { sourceId: this.sending[kind]?.sourceId || '', state: 'failed', error: error.message }; throw error; }
       return this.state();
@@ -378,12 +458,22 @@ class VideoHost {
     const sending = Object.keys(this.sending), previousScene = this.nativeSceneId;
     if (this.stagePending) { const pending = this.stagePending; this.stagePending = null; clearTimeout(pending.timer); pending.reject(fail('STALE_CALL', 'Video session ended while publishing')); }
     for (const kind of this.frameChannels.keys()) this.closeFrames(kind);
-    this.generation++; this.sessionVersion = (this.sessionVersion ?? 0) + 1; this.layoutVersion++; this.sessionId = null; this.nativeSceneId = null; this.cameraRequestedFormat = null; this.tracks.clear(); this.members.clear(); this.sourcesById.clear();
+    if (!this.enabled) {
+      // A dead native process cannot acknowledge pending video commands. Reject
+      // them now so queued local cleanup can release camera producers as well.
+      for (const entry of this.pending.values()) {
+        clearTimeout(entry.timer); entry.reject(fail('VIDEO_UNAVAILABLE', 'Native video process is unavailable'));
+      }
+      this.pending.clear();
+    }
+    this.generation++; this.sessionVersion = (this.sessionVersion ?? 0) + 1; this.layoutVersion++; this.readyLayoutVersion = null; this.receiveSurface = null; this.sessionId = null; this.nativeSceneId = null; this.cameraRequestedFormat = null; this.tracks.clear(); this.members.clear(); this.sourcesById.clear();
     return this.serial(async () => {
       if (this.enabled) {
         if ([2, 3].includes(previousScene)) await this.native(34, [], [1]).catch(error => { this.lastError = error.message; });
         await this.clearNativeLayout().catch(error => { this.cleanupError = error.message; });
         for (const kind of sending) await this.stopNative(kind, previousScene).catch(error => { this.cleanupError = error.message; });
+      } else {
+        for (const kind of ['camera', 'screen']) await this.closeLocal(kind).catch(error => { this.cleanupError = error.message; });
       }
       if (!this.cleanupError) this.sending = {};
       else for (const current of Object.values(this.sending)) Object.assign(current, { state: 'failed', error: this.cleanupError });

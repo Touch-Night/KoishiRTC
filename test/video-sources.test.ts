@@ -93,7 +93,9 @@ function virtualFixture({ ready = true, device, timeoutMs = 500, linux = false }
   const sink = createVirtualCameraSink({ ...format, backend, device: configuredDevice, startupTimeoutMs: 1000, timeoutMs }, { platform: linux ? 'linux' : 'win32', spawn: (_command: string, args: string[]) => {
     const child = new FakeWorker(); children.push({ child, args });
     if (args.includes('--diagnostics')) queueMicrotask(() => { child.json({ available: true, opensDevices: false }); child.exitCode = 0; child.emit('close', 0, null); });
-    else if (ready) queueMicrotask(() => child.json({ type: 'ready', ...format, backend, device, nativeDeviceId: 'fixture-native-id' }));
+    else if (ready) queueMicrotask(() => child.json({ type: 'ready', ...format, backend, device, nativeDeviceId: 'fixture-native-id',
+      ...(linux ? { outputPixelFormat: 'nv12', nativePixelFormat: 'nv12', nativeLayout: { width: format.width, height: format.height,
+        pixelFormat: 'nv12', field: 1, bytesPerLine: format.width, sizeImage: format.width * format.height * 3 / 2 } } : {}) }));
     return child;
   } });
   return { sink, children, worker: () => children.at(-1)!.child };
@@ -341,6 +343,7 @@ class Camera:
   np.testing.assert_array_equal(frame,expected);sent.append(True)
 sys.modules['pyvirtualcam']=types.SimpleNamespace(Camera=Camera,PixelFormat=types.SimpleNamespace(NV12='NV12'))
 w.verify_loopback=lambda device:'platform:v4l2loopback-042';sys.platform='linux'
+w.read_loopback_format=lambda device:dict(width=16,height=8,pixelFormat='NV12',field=1,bytesPerLine=16,sizeImage=192)
 for native in ['NV12','I420']:
  sys.stdin=types.SimpleNamespace(buffer=io.BytesIO(packet));sys.stdout=io.StringIO()
  try:w.run(config)
@@ -350,6 +353,7 @@ for native in ['NV12','I420']:
   assert native=='NV12';messages=[json.loads(line) for line in sys.stdout.getvalue().splitlines()]
   assert messages[0]['pixelFormat']==config['pixelFormat'] and messages[0]['outputPixelFormat']=='nv12' and messages[0]['nativePixelFormat']=='nv12'
   assert messages[0]['conversion']==config['pixelFormat']+'-to-nv12' and messages[0]['nativeDeviceId']=='platform:v4l2loopback-042'
+  assert messages[0]['nativeLayout']==dict(width=16,height=8,pixelFormat='nv12',field=1,bytesPerLine=16,sizeImage=192)
   assert messages[1]['bytes']==size and messages[1]['sequence']==2
 assert len(sent)==1 and len(closed)==2
 try:w.validate_config(dict(config,width=15,pixelFormat='rgba'),'linux')
@@ -362,6 +366,73 @@ sys.stdout=output;print('NV12 worker protocol verified')
     const original = frame(2, { pixelFormat, data: generateVideoFrame(config, 2) });
     const result = spawnSync(python, ['-B', '-c', code, worker, JSON.stringify(config)], { input: encodeVideoFrame(original), encoding: 'utf8' });
     assert.equal(result.status, 0, result.stderr); assert.match(result.stdout, /NV12 worker protocol verified/);
+  }
+});
+
+test('Linux output reads the real kernel layout and rejects retained or padded formats before sending', () => {
+  const worker = fileURLToPath(new URL('../bridge/video/virtual_camera_worker.py', import.meta.url));
+  const code = `import importlib.util,ctypes,sys,types,struct
+spec=importlib.util.spec_from_file_location('worker',sys.argv[1]);w=importlib.util.module_from_spec(spec);spec.loader.exec_module(w)
+opened=[];closed=[];queried=[]
+w.os.open=lambda device,flags:opened.append((device,flags)) or 91
+w.os.close=lambda fd:closed.append(fd)
+def ioctl(fd,request,data,mutate):
+ assert fd==91 and mutate and request & 65535==0x5604,'only read-only G_FMT is allowed'
+ assert struct.unpack_from('=I',data)[0]==2,'query the output format'
+ assert request >> 16 & 0x3fff==len(data)
+ offset=8 if ctypes.sizeof(ctypes.c_void_p)==8 else 4
+ struct.pack_into('=6I',data,offset,1024,576,int.from_bytes(b'NV12','little'),1,1024,884736)
+ queried.append(request)
+sys.modules['fcntl']=types.SimpleNamespace(ioctl=ioctl)
+config=dict(width=1024,height=576)
+actual=w.read_loopback_format('/dev/video42')
+assert actual==dict(width=1024,height=576,pixelFormat='NV12',field=1,bytesPerLine=1024,sizeImage=884736)
+assert len(opened)==len(closed)==len(queried)==1 and closed==[91]
+w.read_loopback_format=lambda device:actual
+assert w.verify_loopback_format('/dev/video42',config)['pixelFormat']=='nv12'
+for changes in [dict(width=1022),dict(height=574),dict(pixelFormat='YU12'),dict(field=4),dict(bytesPerLine=1056),dict(sizeImage=901120)]:
+ bad=dict(actual,**changes);w.read_loopback_format=lambda device:bad
+ try:w.verify_loopback_format('/dev/video42',config)
+ except ValueError as error:assert 'unsupported' in str(error) and 'Expected' in str(error)
+ else:raise AssertionError('unverified negotiated layout was accepted')
+print('kernel layout verified without streaming')
+`;
+  const result = spawnSync('python3', ['-B', '-c', code, worker], { encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr); assert.match(result.stdout, /kernel layout verified without streaming/);
+});
+
+test('NV12 full camera surfaces initialize every bottom-row sample and preserve final chroma', t => {
+  const python = numpyPython(t); if (!python) return;
+  const worker = fileURLToPath(new URL('../bridge/video/virtual_camera_worker.py', import.meta.url));
+  const code = `import importlib.util,sys,numpy as np
+spec=importlib.util.spec_from_file_location('worker',sys.argv[1]);w=importlib.util.module_from_spec(spec);spec.loader.exec_module(w)
+for width,height in [(1024,576),(1024,640),(640,360)]:
+ rgba=np.zeros((height,width,4),dtype=np.uint8);rgba[:,:,3]=255
+ black=w.to_nv12(rgba.reshape(-1),width,height,'rgba')
+ assert black.flags.c_contiguous and len(black)==width*height*3//2
+ assert np.all(black[:width*height]==16) and np.all(black[width*height:]==128)
+ for color,expected in [([255,0,0],[82,90,240]),([0,255,0],[144,54,34]),([0,0,255],[41,240,110]),([255,255,255],[235,128,128])]:
+  rgba[-2:,:,:3]=color
+  result=w.to_nv12(rgba.reshape(-1),width,height,'rgba')
+  assert np.all(result[width*(height-2):width*height]==expected[0])
+  assert np.all(result[-width::2]==expected[1]) and np.all(result[-width+1::2]==expected[2])
+  assert np.all(result[width*height:-width]==128),'last-row changes must not leak into earlier chroma'
+print('all bottom luma and chroma samples verified')
+`;
+  const result = spawnSync(python, ['-B', '-c', code, worker], { encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr); assert.match(result.stdout, /bottom luma and chroma samples verified/);
+});
+
+test('Linux sink refuses worker readiness without matching kernel layout evidence', async () => {
+  const valid = { width: format.width, height: format.height, pixelFormat: 'nv12', field: 1,
+    bytesPerLine: format.width, sizeImage: format.width * format.height * 3 / 2 };
+  for (const nativeLayout of [undefined, { ...valid, bytesPerLine: 32 }, { ...valid, sizeImage: 200 }]) {
+    const f = virtualFixture({ linux: true, ready: false });
+    const started = f.sink.start({ callId: 'call', sourceId: 'test-source' });
+    f.worker().json({ type: 'ready', ...format, backend: 'v4l2loopback', device: '/dev/video42', nativeDeviceId: 'fixture-native-id',
+      outputPixelFormat: 'nv12', nativePixelFormat: 'nv12', nativeLayout });
+    await assert.rejects(started, /negotiated NV12 layout/);
+    assert.equal(f.worker().packets.length, 0);
   }
 });
 

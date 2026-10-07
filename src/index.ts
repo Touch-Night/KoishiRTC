@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import type { Client } from '@koishijs/plugin-console';
 import { RtcManager, RtcController, RtcError } from './core.js';
 import { DesktopBridgeProvider, type BridgeConfig } from './providers/bridge.js';
+import { playTestTone } from './test-tone.js';
 import type { TelegramConfig } from './providers/telegram.js';
 import type { KookConfig } from './providers/kook.js';
 import type { LiveKitConfig } from './providers/livekit.js';
@@ -70,6 +71,7 @@ declare module '@koishijs/console' { interface Events {
   'rtc/audio-routes'(providerId: string): unknown;
   'rtc/configure-audio'(providerId: string, inputDevice: string, outputDevice: string): unknown;
   'rtc/channels'(providerId: string): unknown;
+  'rtc/video-sources'(providerId: string): unknown;
   'rtc/control'(action: string, args: Record<string, unknown>): unknown;
   'rtc/video'(action: string, args: Record<string, unknown>): unknown;
 } }
@@ -136,6 +138,10 @@ export class RtcService extends Service<Config> {
   private console(ctx: Context) {
     ctx.console.addEntry({ dev: fileURLToPath(new URL('../client/index.ts', import.meta.url)), prod: fileURLToPath(new URL('./client', import.meta.url)) });
     const controllers = new Map<string, { client: Client; controller: RtcController; detach: () => void }>();
+    const tones = new Map<string, { clientId: string; abort: AbortController }>();
+    const cancelTones = (clientId: string, callId?: string) => {
+      for (const [id, tone] of tones) if (tone.clientId === clientId && (callId === undefined || id === callId)) tone.abort.abort();
+    };
     const previews = new Map<string, { clientId: string; callId: string; trackId: string; frame?: unknown; error?: string }>();
     const dropPreviews = (clientId: string, callId?: string) => {
       for (const [key, preview] of previews) if (preview.clientId === clientId && (callId === undefined || preview.callId === callId)) {
@@ -146,6 +152,7 @@ export class RtcService extends Service<Config> {
       const item = controllers.get(client.id);
       if (!item || item.client !== client) return;
       controllers.delete(client.id); item.detach(); dropPreviews(client.id);
+      cancelTones(client.id);
       // dispose closes readers synchronously before awaiting native cleanup.
       void item.controller.dispose();
     };
@@ -178,6 +185,7 @@ export class RtcService extends Service<Config> {
       for (const [id, level] of this.levels) if (Date.now() - level.timestamp > 5000) this.levels.delete(id);
     }, 1000);
     ctx.on('dispose', async () => {
+      for (const tone of tones.values()) tone.abort.abort();
       const pending = [...controllers.values()].map(item => { item.detach(); dropPreviews(item.client.id); return item.controller.dispose(); });
       controllers.clear(); await Promise.allSettled(pending);
     });
@@ -202,33 +210,29 @@ export class RtcService extends Service<Config> {
       authorize(this); const p = service.providers.get(providerId) as CallProvider & { channels?: () => Promise<unknown> };
       return p?.channels ? p.channels() : [];
     }, { authority: 4 });
+    ctx.console.addListener('rtc/video-sources', async function (this: Client, providerId) {
+      authorize(this); return service.manager.availableVideoSources(providerId);
+    }, { authority: 4 });
     ctx.console.addListener('rtc/control', async function (this: Client, action, args) {
       const c = getController(this);
       if (!args || typeof args !== 'object' || Array.isArray(args)) throw new Error('操作参数无效');
       if (action === 'dial') {
         if (typeof args.providerId !== 'string' || typeof args.targetId !== 'string' || !['direct','group'].includes(String(args.kind))) throw new Error('请选择通话对象');
-        return c.dial(args.providerId, { kind: args.kind, targetId: args.targetId, guildId: args.guildId, media: args.media, groupMode: args.groupMode, inviteeIds: args.inviteeIds } as CallRequest);
+        return c.dial(args.providerId, { kind: args.kind, targetId: args.targetId, guildId: args.guildId, media: args.media, groupMode: args.groupMode, inviteeIds: args.inviteeIds, initialVideo: args.initialVideo } as CallRequest);
       }
       if (typeof args.callId !== 'string') throw new Error('请选择通话');
-      if (action === 'release') { if (service.manager.getCall(args.callId).owner !== `console:${this.id}`) throw new RtcError('NOT_CONTROLLER', '这次通话由其他插件或窗口控制。'); dropPreviews(this.id, args.callId); return c.release(args.callId); }
+      if (action === 'release') { if (service.manager.getCall(args.callId).owner !== `console:${this.id}`) throw new RtcError('NOT_CONTROLLER', '这次通话由其他插件或窗口控制。'); cancelTones(this.id, args.callId); dropPreviews(this.id, args.callId); return c.release(args.callId); }
       if (!['accept','reject','hangup','mute','clear','tone'].includes(action)) throw new Error('未知操作');
       c.claim(args.callId);
+      if (action === 'clear' || action === 'hangup' || action === 'mute' && args.muted === true) cancelTones(this.id, args.callId);
       if (action === 'mute') { if (typeof args.muted !== 'boolean') throw new Error('无效静音设置'); return c.setMuted(args.callId, args.muted); }
       if (action === 'tone') {
         const call = service.manager.getCall(args.callId), provider = service.providers.get(call.providerId), format = provider?.audioFormat;
         if (!format) throw new Error('后端未声明音频格式');
-        const samples = Math.round(format.sampleRate * .02);
-        for (let part = 0; part < 20; part++) {
-          const data = Buffer.alloc(samples * format.channels * 2);
-          for (let i = 0; i < samples; i++) {
-            const index = part * samples + i, total = 20 * samples;
-            const envelope = Math.min(1, index / (format.sampleRate * .015), (total - index) / (format.sampleRate * .015));
-            const value = Math.round(Math.sin(index * 2 * Math.PI * 440 / format.sampleRate) * 2500 * envelope);
-            for (let channel = 0; channel < format.channels; channel++) data.writeInt16LE(value, (i * format.channels + channel) * 2);
-          }
-          await c.writeAudio(args.callId, { ...format, data, sequence: part, timestamp: Date.now() });
-        }
-        return { queuedMs: 400 };
+        if (tones.has(args.callId)) throw new RtcError('PLAYBACK_BUSY', '上一段测试音尚未完成。');
+        const tone = { clientId: this.id, abort: new AbortController() }; tones.set(args.callId, tone);
+        try { return await playTestTone(service.manager, c, args.callId, format, () => checkSession(this, c), 12000, tone.abort.signal); }
+        finally { if (tones.get(args.callId) === tone) tones.delete(args.callId); }
       }
       if (action === 'clear') return c.clearAudio(args.callId);
       return c[action as 'accept' | 'reject' | 'hangup'](args.callId);
@@ -246,7 +250,7 @@ export class RtcService extends Service<Config> {
       if (['frame', 'unsubscribe'].includes(action) && !validId(args.trackId, 512)) throw new Error('请选择视频轨道');
       // A delayed preview poll or unmount cleanup must never reclaim a released
       // lease. Only an explicit new viewing/sending action may obtain control.
-      if (['frame', 'unsubscribe', 'stop'].includes(action)) {
+      if (['frame', 'unsubscribe', 'stop'].includes(action) || args.statusOnly === true && ['state', 'sources'].includes(action)) {
         if (service.manager.getCall(callId).owner !== `console:${this.id}`) throw new RtcError('NOT_CONTROLLER', '视频预览的控制权已释放。');
       } else c.claim(callId);
       const checked = async <T>(pending: Promise<T>) => { const result = await pending; checkSession(this, c); return result; };
@@ -284,7 +288,7 @@ export class RtcService extends Service<Config> {
     // Console listeners are not scoped by Koishi. Drop only this instance's
     // handlers so disabling/reloading the plugin cannot keep stale controls.
     const listeners = ctx.console.listeners;
-    const ownedListeners = ['rtc/status', 'rtc/diagnostics', 'rtc/devices', 'rtc/audio-routes', 'rtc/configure-audio', 'rtc/channels', 'rtc/control', 'rtc/video']
+    const ownedListeners = ['rtc/status', 'rtc/diagnostics', 'rtc/devices', 'rtc/audio-routes', 'rtc/configure-audio', 'rtc/channels', 'rtc/video-sources', 'rtc/control', 'rtc/video']
       .map(name => [name, listeners[name]] as const);
     ctx.on('dispose', () => {
       for (const [name, listener] of ownedListeners) if (listeners[name] === listener) delete listeners[name];

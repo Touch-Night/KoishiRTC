@@ -2,6 +2,7 @@
 'use strict';
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
+const { createVideoOutputWindow } = require('./output-window.cjs');
 const fail = (code, message) => Object.assign(new Error(message), { code });
 function windowHandle(mediaId) {
   const match = /^window:([1-9]\d*):\d+$/.exec(mediaId ?? '');
@@ -45,7 +46,7 @@ class DesktopVideo {
     const available = await this.desktopCapturer.getSources({ types: [source.sourceType === 'display' ? 'screen' : 'window'], thumbnailSize: { width: 0, height: 0 }, fetchWindowIcons: false });
     const selected = available.find(item => item.id === source.captureId);
     if (!selected) throw fail('VIDEO_SOURCE_GONE', 'The selected screen or window is no longer available');
-    const window = new this.BrowserWindow({ width: 640, height: 360, useContentSize: true, frame: false, show: false, title: 'Koishi RTC · selected screen source', webPreferences: { partition: `rtc-video-${randomUUID()}`, sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } });
+    const window = createVideoOutputWindow(this.BrowserWindow, { title: 'Koishi RTC · selected screen source', webPreferences: { partition: `rtc-video-${randomUUID()}` } });
     const current = { window, timer: null }; this.capture = current;
     try {
       window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));

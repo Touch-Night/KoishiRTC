@@ -121,6 +121,27 @@ test('Pulse clear/mute discard pending output while capture stays alive and the 
   await f.audio.stop();
 });
 
+test('Pulse clear cancels writes awaiting an earlier drain instead of reviving old audio', async context => {
+  const f = fixture(), receipts: any[] = [];
+  context.after(() => f.audio.stop());
+  f.audio.on('playback', (value: any) => receipts.push(value));
+  await f.audio.start(); await f.audio.write(Buffer.alloc(1920), 'first'); await tick();
+  const draining = f.audio.flush(); await tick();
+  assert.equal(f.output().ended, true);
+  const waiting = f.audio.write(Buffer.alloc(1920, 1), 'before-clear');
+  // Attach the rejection observer before the synchronous cancellation boundary.
+  const result = waiting.then((receipt: any) => ({ receipt }), (error: Error) => ({ error }));
+  await f.audio.clear(); await draining;
+  const outcome = await result; await tick();
+  assert.ok('error' in outcome && /cancelled/i.test(outcome.error.message), 'a queued writer from before clear must be cancelled');
+  assert.equal(f.children.filter(item => item.command === 'pacat').length, 1, 'clear must not restart playback with a stale writer');
+  assert.equal(f.audio.pending.has('before-clear'), false);
+  assert.equal(receipts.find(value => value.id === 'first')?.state, 'cancelled');
+  await f.audio.write(Buffer.alloc(1920), 'after-clear'); await tick();
+  assert.equal(f.children.filter(item => item.command === 'pacat').length, 2, 'an explicit write after clear can start a new stream');
+  await f.audio.stop();
+});
+
 test('PortAudio uses isolated process acknowledgements and does not invent playback progress', async () => {
   const f = fixture('portaudio'), receipts: any[] = [], frames: any[] = [];
   f.audio.on('playback', (value: any) => receipts.push(value)); f.audio.on('audio', (frame: any) => frames.push(frame));

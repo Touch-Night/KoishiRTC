@@ -30,7 +30,7 @@ class MemoryConsole extends Console {
     return Object.values(this.clients).find(client => client.socket === socket as any)!;
   }
 }
-const rpcNames = ['rtc/status', 'rtc/diagnostics', 'rtc/devices', 'rtc/audio-routes', 'rtc/configure-audio', 'rtc/channels', 'rtc/control', 'rtc/video'];
+const rpcNames = ['rtc/status', 'rtc/diagnostics', 'rtc/devices', 'rtc/audio-routes', 'rtc/configure-audio', 'rtc/channels', 'rtc/video-sources', 'rtc/control', 'rtc/video'];
 async function fixture(t: TestContext, auth = false) {
   const app = new App({}), errors: unknown[] = [];
   app.on('internal/error', error => { errors.push(error); });
@@ -88,7 +88,7 @@ test('real Koishi console listeners enforce authority and expiry even without th
   const client = f.connect();
   const requests: [string, ...unknown[]][] = [
     ['rtc/status'], ['rtc/diagnostics'], ['rtc/devices', 'p'], ['rtc/audio-routes', 'p'],
-    ['rtc/configure-audio', 'p', 'in', 'out'], ['rtc/channels', 'p'], ['rtc/control', 'accept', { callId: 'c1' }],
+    ['rtc/configure-audio', 'p', 'in', 'out'], ['rtc/channels', 'p'], ['rtc/video-sources', 'p'], ['rtc/control', 'accept', { callId: 'c1' }],
     ['rtc/video', 'subscribe', { callId: 'c1', participantId: 'peer', kind: 'camera' }],
   ];
   for (const [name, ...args] of requests) {
@@ -128,6 +128,24 @@ test('disconnected and expired console owners release playback without ending th
   assert.match((await second.rpc('rtc/control', 'clear', { callId: 'c1' })).error, /权限等级 4/);
   await eventually(() => f.service.manager.getCall('c1').owner === undefined, 'expired console retained its lease');
   assert.equal(p.operations.clear, 4); assert.equal(f.service.manager.getCall('c1').state, 'connected');
+});
+
+test('console stop cancels a test tone whose played event precedes its pending write reply', async t => {
+  const f = await fixture(t), p = providerFixture(), gate = deferred(); await f.service.register(f.scope().ctx, p.provider);
+  const client = f.connect(); client.client.auth = { authority: 4, expiredAt: Date.now() + 60000 };
+  p.provider.writeAudio = async (frame, id) => {
+    p.operations.writes++;
+    const receipt = { id, callId: frame.callId, state: 'played' as const, acceptedBytes: frame.data.length, playedBytes: frame.data.length };
+    p.events.emit('event', { type: 'playback', playback: receipt });
+    if (p.operations.writes === 1) await gate.promise;
+    return receipt;
+  };
+  const tone = client.rpc('rtc/control', 'tone', { callId: 'c1' });
+  await eventually(() => p.operations.writes === 1);
+  const clear = client.rpc('rtc/control', 'clear', { callId: 'c1' }); gate.resolve();
+  assert.equal((await clear).error, undefined); assert.match((await tone).error, /测试音已停止/);
+  assert.equal(p.operations.writes, 1, 'the complete cue is submitted once and clear must not replay it');
+  assert.equal(p.operations.clear, 1);
 });
 
 test('consumer plugin disposal revokes continuous PCM readers and only its own controller', async t => {
@@ -310,4 +328,29 @@ test('console preserves explicit video/screen invitations while ordinary dialing
   p.events.emit('event', { type: 'call', call: { ...video.value, state: 'ended' } });
   const audio = await client.rpc('rtc/control', 'dial', { providerId: 'p', kind: 'direct', targetId: 'peer' });
   assert.equal(audio.error, undefined); assert.equal(requests[2].media, undefined);
+});
+
+test('pre-call source discovery is read-only and auto state polling never reacquires a released lease', async t => {
+  const f = await fixture(t), p = videoProviderFixture(); let discoveries = 0;
+  p.provider.availableVideoSources = async () => { discoveries++; return [{ id: 'test-pattern', name: 'Generated', kind: 'camera' }]; };
+  await f.service.register(f.scope().ctx, p.provider); const client = loggedIn(f.connect());
+  const sources = await client.rpc('rtc/video-sources', 'p');
+  assert.equal(sources.error, undefined); assert.equal(sources.value[0].id, 'test-pattern'); assert.equal(discoveries, 1);
+  assert.equal(f.service.manager.getCall('c1').owner, undefined);
+  for (const action of ['state', 'sources']) assert.match((await client.rpc('rtc/video', action, { callId: 'c1', statusOnly: true })).error, /控制权已释放/);
+  assert.equal(f.service.manager.getCall('c1').owner, undefined);
+  assert.equal((await client.rpc('rtc/video', 'sources', { callId: 'c1' })).error, undefined);
+  assert.equal((await client.rpc('rtc/video', 'state', { callId: 'c1', statusOnly: true })).error, undefined);
+  assert.equal((await client.rpc('rtc/control', 'release', { callId: 'c1' })).error, undefined);
+  for (const action of ['state', 'sources']) assert.match((await client.rpc('rtc/video', action, { callId: 'c1', statusOnly: true })).error, /控制权已释放/);
+  assert.equal(f.service.manager.getCall('c1').owner, undefined);
+});
+
+test('console video invitations pass the chosen initial source and start only after connection', async t => {
+  const f = await fixture(t), p = videoProviderFixture(); p.publish({ state: 'dialing', direction: 'outgoing' }); p.provider.calls = () => [];
+  await f.service.register(f.scope().ctx, p.provider); const client = loggedIn(f.connect());
+  const result = await client.rpc('rtc/control', 'dial', { providerId: 'p', kind: 'direct', targetId: '2', media: 'video', initialVideo: [{ kind: 'camera', sourceId: 'chosen-camera' }] });
+  assert.equal(result.error, undefined); assert.equal(p.videoOperations.sends, 0);
+  p.publish({ state: 'connected' }); await eventually(() => p.videoOperations.sends === 1);
+  assert.equal(p.state().sending.camera?.sourceId, 'chosen-camera');
 });

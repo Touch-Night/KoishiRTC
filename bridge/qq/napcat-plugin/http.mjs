@@ -6,6 +6,12 @@ import path from 'node:path';
 import { BridgeError, PROTOCOL_VERSION } from './controller.mjs';
 
 const LOOPBACK = new Set(['127.0.0.1', '::1', 'localhost']);
+export function readVideoSendFailure(value, expected) {
+  if (!value || !expected || typeof value.requestId !== 'string' || !/^[A-Za-z0-9._:-]{1,128}$/.test(value.requestId) || value.requestId !== expected.requestId ||
+    typeof value.callId !== 'string' || !value.callId || value.callId.length > 1024 || value.callId !== expected.callId || !['camera', 'screen'].includes(value.kind) || value.kind !== expected.kind ||
+    typeof value.sourceId !== 'string' || !value.sourceId || value.sourceId.length > 2048 || value.sourceId !== expected.sourceId || !['unchanged', 'stopped'].includes(value.outcome)) return;
+  return { requestId: value.requestId, callId: value.callId, kind: value.kind, sourceId: value.sourceId, outcome: value.outcome };
+}
 export function parseSettings(env = process.env, pluginDir = '.') {
   const configFile = path.join(pluginDir, 'bridge-config.json');
   const config = fs.existsSync(configFile) ? JSON.parse(fs.readFileSync(configFile, 'utf8')) : {};
@@ -55,6 +61,7 @@ async function readBody(req) {
 }
 export function createHttpServer(controller, token) {
   const server = http.createServer(async (req, res) => {
+    let requestBody;
     try {
       const url = new URL(req.url, 'http://127.0.0.1');
       if (req.method === 'GET' && url.pathname === '/healthz') return send(res, 200, { ok: true });
@@ -77,8 +84,8 @@ export function createHttpServer(controller, token) {
           default: throw new BridgeError('NOT_FOUND', 'Unknown endpoint', 404);
         }
       } else if (req.method === 'POST') {
-        const body = await readBody(req);
-        if (/^\/v1\/video\/(session|subscribe|unsubscribe|send|stop|write)$/.test(url.pathname)) {
+        const body = requestBody = await readBody(req);
+        if (/^\/v1\/video\/(session|subscribe|unsubscribe|send|stop|cancel|write)$/.test(url.pathname)) {
           data = await controller.video(url.pathname.split('/').at(-1), body);
         } else if (url.pathname === '/v1/avsdk/output') {
           await controller.nativeOutput(body); data = { received: true };
@@ -95,9 +102,11 @@ export function createHttpServer(controller, token) {
         { ok: true, protocolVersion: PROTOCOL_VERSION, data });
     } catch (error) {
       const known = error instanceof BridgeError;
+      const proof = known && req.url === '/v1/video/send' ? readVideoSendFailure(error.videoSendFailure, requestBody) : undefined;
       return send(res, known ? error.status : 500, { ok: false, error: {
         code: known ? error.code : 'INTERNAL_ERROR', message: known ? error.message : 'Internal bridge error',
         ...(known && error.capability ? { capability: error.capability } : {}),
+        ...(proof ? { videoSendFailure: proof } : {}),
       } });
     }
   });
@@ -128,7 +137,8 @@ export function createHostTransport(settings, token) {
       const code = json?.error?.code ?? json?.errorCode;
       const typed = typeof code === 'string' && /^[A-Z][A-Z0-9_]{0,63}$/.test(code) && !code.includes(token);
       const status = response.status >= 400 && response.status <= 599 ? response.status : 502;
-      throw new BridgeError(typed ? code : 'AV_HOST_REJECTED', safeMessage(json?.error?.message ?? json?.message), status);
+      const proof = route === '/v1/video/send' ? readVideoSendFailure(json?.error?.videoSendFailure ?? json?.videoSendFailure, body) : undefined;
+      throw new BridgeError(typed ? code : 'AV_HOST_REJECTED', safeMessage(json?.error?.message ?? json?.message), status, proof ? { videoSendFailure: proof } : {});
     }
     return json.data;
   }

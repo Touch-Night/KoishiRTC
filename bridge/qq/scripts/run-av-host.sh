@@ -29,6 +29,11 @@ export KOISHI_RTC_QQ_QQ_DIR="$qq_dir"
 export KOISHI_RTC_QQ_AVSDK_PATH="$avsdk_path"
 export KOISHI_RTC_QQ_BRIDGE_TOKEN_FILE="$token_file"
 export PULSE_SERVER="$pulse_server"
+if [[ ${KOISHI_RTC_QQ_RESTART_AV_HOST:-1} == 1 ]]; then
+  export KOISHI_RTC_QQ_AV_HOST_SUPERVISED=1
+else
+  unset KOISHI_RTC_QQ_AV_HOST_SUPERVISED
+fi
 avsdk_dir=$(dirname -- "$avsdk_path")
 export LD_LIBRARY_PATH="$avsdk_dir:$avsdk_dir/bugly${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 

@@ -60,6 +60,48 @@ def verify_loopback(device):
         os.close(fd)
 
 
+def read_loopback_format(device):
+    """Read the negotiated kernel layout, not pyvirtualcam's requested format."""
+    import ctypes
+    import fcntl
+
+    class FormatUnion(ctypes.Union):
+        # v4l2_format's 200-byte union also contains native pointers. Let ctypes
+        # match its alignment on both 32-bit and 64-bit Linux rather than using
+        # a hard-coded offset for fmt.pix.
+        _fields_ = [("raw", ctypes.c_ubyte * 200), ("alignment", ctypes.c_void_p)]
+
+    class Format(ctypes.Structure):
+        _fields_ = [("type", ctypes.c_uint32), ("fmt", FormatUnion)]
+
+    value = Format()
+    value.type = 2  # V4L2_BUF_TYPE_VIDEO_OUTPUT; G_FMT never changes the device.
+    data = bytearray(value)
+    request = 0xC0000000 | (ctypes.sizeof(value) << 16) | (ord("V") << 8) | 4
+    fd = os.open(device, os.O_WRONLY | os.O_NONBLOCK)
+    try:
+        fcntl.ioctl(fd, request, data, True)  # VIDIOC_G_FMT
+    finally:
+        os.close(fd)
+    width, height, fourcc, field, stride, size = struct.unpack_from("=6I", data, Format.fmt.offset)
+    return {"width": width, "height": height, "pixelFormat": fourcc.to_bytes(4, "little").decode("ascii"),
+            "field": field, "bytesPerLine": stride, "sizeImage": size}
+
+
+def verify_loopback_format(device, config):
+    # pyvirtualcam 0.15 only checks S_FMT's return code. A loopback with a locked
+    # format can silently keep its previous dimensions/stride, leaving unwritten
+    # chroma at the bottom or truncating frames even though send() succeeds.
+    layout = read_loopback_format(device)
+    expected = {"width": config["width"], "height": config["height"], "pixelFormat": "NV12", "field": 1,
+                "bytesPerLine": config["width"], "sizeImage": config["width"] * config["height"] * 3 // 2}
+    if layout != expected:
+        raise ValueError("Virtual-camera negotiated layout is unsupported by the tightly packed pyvirtualcam writer; "
+                         "release other producers/consumers and clear any locked device format before retrying. "
+                         "Expected " + json.dumps(expected, sort_keys=True) + "; got " + json.dumps(layout, sort_keys=True))
+    return {**layout, "pixelFormat": "nv12"}
+
+
 def read_exact(stream, length, allow_eof=False):
     result = bytearray()
     while len(result) < length:
@@ -222,9 +264,11 @@ def run(config):
             raise ValueError("Virtual camera selected a different device or backend")
         if convert_nv12 and camera.native_fmt != pyvirtualcam.PixelFormat.NV12:
             raise ValueError("Virtual-camera backend did not select native NV12")
+        layout = verify_loopback_format(config["device"], config) if convert_nv12 else None
         emit({"type": "ready", **{key: config[key] for key in ("device", "backend", "width", "height", "fps", "pixelFormat")},
               "outputPixelFormat": output_format, "conversion": config["pixelFormat"] + "-to-nv12" if convert_nv12 else "none",
-              **({"nativePixelFormat": "nv12", "colorSpace": "bt601-limited" if config["pixelFormat"] == "rgba" else "input-i420"} if convert_nv12 else {}),
+              **({"nativePixelFormat": "nv12", "nativeLayout": layout,
+                  "colorSpace": "bt601-limited" if config["pixelFormat"] == "rgba" else "input-i420"} if convert_nv12 else {}),
               "nativeDeviceId": native_device_id})
         send_frames(camera, config, size, convert_nv12, np)
 

@@ -100,7 +100,7 @@ test('bridge abort releases pending requests promptly without resubmitting a mut
   } finally { await f.close(); }
 });
 
-async function daemonFixture(options: { persistAudio?: (settings: any) => Promise<void> } = {}) {
+async function daemonFixture(options: { persistAudio?: (settings: any) => Promise<void>; prepare?: (audio: any, control: any) => void } = {}) {
   const control: any = new EventEmitter(); control.calls = new Map(); control.caps = allCaps(); control.notices = []; control.start = async () => {}; control.stop = async () => {};
   control.update = (c: any) => { control.calls.set(c.id, c); control.emit('call', c); };
   control.control = async (op: string, args: any) => { const c = op === 'dial' ? call('dialed', 'dialing') : { ...control.calls.get(args.callId), state: op === 'accept' ? 'connected' : 'ended' }; control.update(c); return c; };
@@ -111,6 +111,7 @@ async function daemonFixture(options: { persistAudio?: (settings: any) => Promis
   audio.start = async () => { audio.running = true; audio.starts++; }; audio.stop = async () => { audio.running = false; audio.stops++; };
   audio.setMuted = async (value: boolean) => { audio.muted = value; }; audio.clear = async () => {};
   audio.write = async (bytes: Buffer, id: string) => { audio.writes.push(id); return { id, acceptedBytes: bytes.length, playedBytes: 0, state: 'queued' }; };
+  options.prepare?.(audio, control);
   const config = { host: '127.0.0.1', port: 0, token, account: { platform: 'test', selfId: '1' }, audio: { ...audio.config } };
   const daemon = await createDaemon(config, { control, audio, ...options }); const address = await daemon.start();
   const clients: WebSocket[] = [];
@@ -180,6 +181,31 @@ test('runtime audio failures remain unavailable through HTTP diagnostics, and ex
     assert.equal((await f.http('/v1/status')).capabilities.sendAudio.supported, false);
     await f.http('/v1/diagnostics'); assert.equal((await f.http('/v1/status')).capabilities.sendAudio.supported, false); assert.equal(f.audio.running, false);
     assert.equal((await client.request('diagnostics')).ok, true); await eventually(() => f.audio.running);
+    assert.equal((await f.http('/v1/status')).capabilities.sendAudio.supported, true);
+  } finally { await f.close(); }
+});
+
+test('late audio devices become available without a console diagnostics request', async () => {
+  let ready = false, checks = 0;
+  const f = await daemonFixture({ prepare(audio) { audio.diagnostics = async () => { checks++; return [{ id: 'device', level: ready ? 'ok' : 'error', message: ready ? 'ready' : 'private server not ready' }]; }; } });
+  try {
+    const client = await f.connect();
+    assert.equal((await f.http('/v1/status')).capabilities.sendAudio.supported, false);
+    ready = true;
+    await new Promise(resolve => setTimeout(resolve, 1150));
+    await eventually(() => client.packets.some(p => p.type === 'status' && p.capabilities.sendAudio.supported));
+    assert.equal(f.audio.starts, 0, 'device discovery must not capture outside a call');
+    assert.ok(checks >= 3);
+    f.control.update(call()); await eventually(() => f.audio.running);
+  } finally { await f.close(); }
+});
+
+test('worker recovery keeps a connected call muted and does not replay failed audio', async () => {
+  const f = await daemonFixture(); f.control.update({ ...call(), muted: true }); await f.connect(); await eventually(() => f.audio.running);
+  try {
+    f.audio.emit('error', new Error('worker exited')); await eventually(() => !f.audio.running);
+    await new Promise(resolve => setTimeout(resolve, 1150)); await eventually(() => f.audio.running);
+    assert.equal(f.audio.muted, true); assert.equal(f.audio.writes.length, 0);
     assert.equal((await f.http('/v1/status')).capabilities.sendAudio.supported, true);
   } finally { await f.close(); }
 });

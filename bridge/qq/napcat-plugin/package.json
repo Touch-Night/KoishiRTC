@@ -1,7 +1,7 @@
 {
   "name": "napcat-plugin-koishi-rtc-qq",
   "plugin": "Koishi RTC QQ 控制桥",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "main": "index.mjs",
   "description": "Authenticated QQ call state, capability diagnostics and explicit call controls",

@@ -20,6 +20,47 @@
 
 实现时需要明确会话转换授权，等待新邀请和连接结果，处理拒绝、超时、旧会话清理及所有权变化。不能只更改本地 scene 数字后把旧通话标为已升级，也不能照搬官方 GUI 自动恢复物理设备的行为；插件的摄像头与音频必须继续绑定消费方明确选择的来源。
 
+### 通话中开启屏幕共享
+
+补充追踪找到了发送端关闭旧 DAV 的确切步骤：object 19574 的 `0x0223`
+等待 `handleGroupSwitchToScreenShare`。该函数的 SFI 19546 指向 object 19538；
+其无 groupCode 分支在 `0x0060` 调用
+`callStore.quit({ closeReason: QRTCSelfCloseReasonSwitchMeeting })`，随后
+`0x008c..0x009d` 等待 2000 毫秒。枚举 object 2913 的 `0x0040..0x0043`
+确定该 self close reason 为 **8**，因此是命令 10 `[1, peerUid, 8]`，
+然后才发送 scene 2、original 5、reason 3 的转换邀请。
+
+接收端 edge handler object 12292 在 `OnChatClosed` reason **29** 时记录
+`isClosedBySwitchToMeeting`，退出旧传输，等待最长 5 秒的新邀请；reason 29
+来自 converter object 2433 的 `0x0178..0x017b`。object 12743 只在这一标记
+已成立时自动接听转换邀请。发送端 object 11719 的 15 秒超时针对被邀请者未加入；
+object 11250 收到该 UID 入房后才清除标记。`closeC2CCall` 本身是超时标记，
+不能误当成一个隐含的本地关闭动作。
+
+当前实现对已审计的 Linux ARM64 构建开放这一流程：连接中的 scene 1 调用
+`POST /v1/video/send`，明确选择 `kind: "screen"` 与来源后进行转换。
+先验证来源和原生服务，再停止旧视频、提交官方转换协议。逻辑 `callId` 和消费方
+所有权保持不变；`call.mediaTransition` 和视频状态明确展示转换阶段。
+原生音频约有 2 秒以上的中断，不宣称无缝切换。新 MAV 本端连接、目标 UID 入房
+以及指定来源发布均确认后，发送请求才成功返回；旧摄像头只恢复此前明确选择且
+正在发送的来源，不选择默认物理摄像头。转换等待期间不接受 PCM 写入。
+
+`POST /v1/video/cancel` 使用 `{callId, requestId, targetRequestId}` 取消指定发送请求
+尚未完成的转换；迟到的取消不能作用于后续转换。此接口供消费者
+退出及停止按钮绕过长发送队列使用；没有转换时它不会停止已在工作的摄像头或屏幕。
+取消早于对应发送到达时，仍为当前通话保留有界的请求取消记录，防止迟到发送重新开启
+转换；不会因淘汰取消记录而复活请求。失败或取消状态中的 `audioReady` 只在未关闭旧
+DAV，或已确认新 MAV 与对端均连接时为 true，供上层恢复语音而不是按状态名猜测。
+正常挂断、远端关闭或 Host 代际变化同样取消延迟邀请。未知提交不重复；跨过关闭边界
+后协商失败会保留需清理的状态，不假称原 DAV 已恢复。如果新 MAV 已确实连接而只是
+视频发布失败，则保留语音通话。端到端等待预算为 40 秒，外层发送 RPC 为 45 秒。
+
+ARM64 的 `DavClose` @ `0x6af5a0` 原样传入关闭原因；Ntrtc 异步 Close 的 reason 8
+分支 @ `0x9818b4` 使用内部 reason 26 并停止旧视频聊天。`OnCloseSession`
+@ `0x6b12e0..0x6b1454` 不转发 reason 26；接收端的 reason 29 不能据此推成发送端
+同样会收到的回调。实现不吞掉任意 `20022`，真正关闭会中止转换。
+静态协议与离线状态机回归不代替真实热切换验收；未审计构建仍不能直接在 DAV 调用 35。
+
 ## 原生侧证据
 
 - `QRTCService::StartShareSend` @ `0x6957e8` 和 `StopShareSend` @ `0x6958e4` 仅在 scene 2–7 且存在 engine 时继续；否则返回 false。
@@ -37,6 +78,10 @@
 
 拨号前原生命令 43 接收 `[peerUid]`。ARM64 wrapper `0x4ef184` 的同步回执为命令 43、原请求 ID、`[boolInt, ""]`；这里 **1 表示支持，0 表示不支持**，不能套用其他命令的 ret=0 成功规则。控制层等待匹配请求的真实回执，超时、格式错误或进程变化均不发出拨号命令；异步检查期间出现的其他来电也不会被取代。
 
+尽管官方方法名带有 Peer，ARM64 service @ `0x696d1c` 实际检查本地 `this+144`
+服务指针是否存在，没有向 peerUid 发起远端能力协商。返回 1 只证明本地转换入口
+可用，对方是否支持、接受或加入必须由后续真实结果判断。
+
 Linux x64 同版本命令 43 另行核验：wrapper `0x55d3c0`，`0x55d3f9` 保存原请求 ID，`0x55d481` 将 bool 转为 int，`0x55d511..0x55d559` 构造 boolInt 和空字符串，`0x55d5c8..0x55d5d1` 以命令 43 和原请求 ID 返回。对应 SHA-256 为 `c143c4e8ac94c20bcefb037e7062fbeccd0528bd746108d6bf1f0ae8e1710a8b`；这项静态核验允许该构建启用能力检查，并不等于 x64 已完成通话验收。
 
 Scene 2 仍以 private 暴露，保留 scene 2 的会话和成员关联；官方 GUI object 11801 的 `isScreenShare` 分支使用 `quit({ sceneId, reason: QRTCQuitReasonNone })`，所以挂断使用命令 8 `[2, 0]`，而普通 Scene 1 使用命令 10 Close。退出回执只表示受理；结束由生命周期事件或下述独立本端空闲查询确认。`private.screenDial` 仅在具有对应原生审计证据的构建启用；静态能力门控不表示真实通话验收。
@@ -48,6 +93,12 @@ Scene 2 仍以 private 暴露，保留 scene 2 的会话和成员关联；官方
 证据链：GUI `getStartCallParams` object 11851 的 `0x0043..0x0059` 在 Video 分支选择 `uQ.Video`，枚举 object 246 的 `0x0019..0x001c` 明确 `Video=2`；非群默认 `inviteOriginal=Normal=0`，只有 ScreenShare 分支才改为 `P2PShareScreen=5`。object 4465 的 `0x0055..0x0077` 为普通私聊选择 SceneFriend，并从 `peerMember.uin` 取 relationId。JSON converter object 2665 在没有额外转换原因时填 Normal=0。
 
 官方 `startC2CCall` object 11710 先调用 `qrtc.startCall(getStartCallParams(...))`（`0x00e3..0x0103`），随后在视频分支调用 `videoStore.openCamera`（`0x0141..0x015a`）；后者 object 5696 执行摄像头捕获 47、帧转送 48，并在 isC2C 分支直接调用发布 30。插件仍要求消费方明确指定来源，可以在连接建立后才开启摄像头。
+
+同一个 `openCamera` 在 `0x0143..0x0174` 明确处理原类型为 audio 的情况，调用
+`avStore.switchType(Video)`；object 5156 的这个方法只更新类型、窗口和布局，
+`setAVType` object 4789 的 8 字节正文只有属性赋值。它不额外调用原生
+`SwitchToVideoMode`，所以连接中的普通私聊语音同样使用 47/48/30 开启摄像头。
+此静态路径不能替代语音起呼后热开摄像头的实际画面验收。
 
 DAV 的命令 30/31 正常回执是单元素 `[0]`，表示本地任务已提交，与 MAV 的 `[1]` 不同。DAV 不等待 MAV 的 20026/20027 发布结果。捕获 47 的首次 `Start camera capture success!` 只表示排队，必须再等相关的实际 DeviceOpen 回执；只有捕获、转送和发布请求成功，仍不能替代对端收到画面的证据。接收采用 DAV 自身的 camera sourceType=1，布局使用 54，不能调用 MAV-only 的 33/34。详见[摄像头捕获研究](qq-camera-capture-research.md)。
 
@@ -116,7 +167,7 @@ ARM64 Close 的实际调用链为 wrapper `0x4e0d1c` → `QRTCService::Close` `0
 
 对应库指纹为本文前述 ARM64 / x64 SHA-256。ARM64 service 根据 scene 选择 DAV 当前 peer 的房间或 MAV 当前房间；因此 Scene 1、Scene 2 及群 Scene 3 都可以查询，但其他平台未据此开启 `roomIdleQuery`。x64 反汇编材料为 `/tmp/qq-x64-static-ao0otabi/command14-roomid.asm`。
 
-控制层仅在相关 Close 10 / Quit 8 成功 ACK 后查询，最多 6 次，每次等待 2 秒，重查间隔 250 ms。重复的是只读命令 14，绝不自动重复 Close、Quit 或拨号。只有当前查询返回严格的 `[0, "", "0"]` 才将通话置为 `ended`，记录 `nativeEndEvent=native.roomIdle`、`nativeCloseCheck` 和 **`remoteEndedConfirmed=false`**：这证明本端 SDK 已无当前房间，允许释放本地通话资源；不表示已经验证对方界面、网络通知或音视频播放均已停止，也不表示对方仍然在通话。
+控制层在相关 Close 10 / Quit 8 成功 ACK 后查询；已经确认接通过的通话，即使关闭 ACK 超时或提交回执丢失，也会执行这项核验。未确认建立的通话不能把初始空闲房间当作关闭完成。最多查询 6 次，每次等待 2 秒，重查间隔 250 ms；迟到 ACK 不重置当前预算。重复的是只读命令 14，绝不自动重复 Close、Quit 或拨号。只有当前查询返回严格的 `[0, "", "0"]` 才将通话置为 `ended`，记录 `nativeEndEvent=native.roomIdle`、`nativeCloseCheck` 和 **`remoteEndedConfirmed=false`**：这证明本端 SDK 已无当前房间，允许释放本地通话资源；不表示已经验证对方界面、网络通知或音视频播放均已停止，也不表示对方仍然在通话。
 
 非零 uint64 房间保持 `ending`；空字符串、格式错误、超时或传输失败都不能当作 0。预算用完后设置 `nativeTeardownUnknown=true` 和可读的 `nativeError`，保留明确操作清理的路径。原有原生结束事件、群成员离房确认仍然有效，不强制等待查询完成。
 

@@ -4,7 +4,7 @@
 // ARM64 wrapper 0x4e1938 / service 0x692f88; x64 0x54e6f0 / 0x786ea0.
 // Missing service returns empty room; scene0 returns "0". Only "0" proves local idle.
 export const PROFILE = Object.freeze({ id: 'qq-linux-3.2.34-53644-arm64',
-  qqVersion: '3.2.34-53644', arch: 'arm64', platform: 'linux', participants: true, privateScreen: true, roomIdleQuery: true, video: true,
+  qqVersion: '3.2.34-53644', arch: 'arm64', platform: 'linux', participants: true, privateScreen: true, privateScreenUpgrade: true, roomIdleQuery: true, video: true,
   librarySHA256: '07cf80b01fb42539ddc4d3a4e95853f26d51b8300ab0b7d4effe2986f1a6f34c' });
 export const LINUX_X64_PROFILE = Object.freeze({ id: 'qq-linux-3.2.34-53644-x64',
   qqVersion: '3.2.34-53644', arch: 'x64', platform: 'linux', participants: true, privateScreen: true, roomIdleQuery: true, video: true,
@@ -28,11 +28,19 @@ export function buildPrivateDialParams({ selfUid, peerUid, peerUin, media = 'aud
   // Recovered from both GUI getStartCallParams and the snake_case converter.
   // Unset optional GUI fields are omitted by JSON.stringify, not filled with invented values.
   // A new screen-share invitation uses Normal(0). Reason 3 is reserved for
-  // replacing an existing DAV call, which this bridge does not do implicitly.
+  // the separately negotiated upgrade of an existing DAV call.
   return [JSON.stringify({ scene_id: media === 'screen' ? 2 : 1, self_uid: selfUid, invite_count: 1,
     invite_uids: [peerUid], sub_business_type: media === 'screen' ? 3 : media === 'video' ? 2 : 1, invite_reason: 0,
     relation_id: peerUin, invite_original: media === 'screen' ? 5 : 0, use_ntrtc_dsp: false,
     ntrtc_ai_denoise_update_model: '', c2c_extend_params: {}, opensdk_enter_room_params: {} })];
+}
+
+export function buildPrivateScreenUpgradeParams(identity) {
+  const parameters = JSON.parse(buildPrivateDialParams({ ...identity, media: 'screen' })[0]);
+  // GUI handleGroupSwitchToScreenShare closes DAV with self reason 8, waits
+  // 2 seconds, then starts FriendShare with DoubleNormalToDoubleMeeting=3.
+  parameters.invite_reason = 3;
+  return [JSON.stringify(parameters)];
 }
 
 export function buildGroupJoinParams({ selfUid, groupId }) {

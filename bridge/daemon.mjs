@@ -14,6 +14,18 @@ const terminal = s => ['ended','failed'].includes(s);
 const needsNativeCleanup = call => call?.phase !== 'ended' &&
   (call?.nativeTeardownUnknown === true || call?.nativeAckTimedOut === true);
 const error = (code,message) => Object.assign(new Error(message),{code});
+export function readVideoSendFailure(value,expected){
+  if(!value||!expected||typeof value.requestId!=='string'||!/^[A-Za-z0-9._:-]{1,128}$/.test(value.requestId)||expected.requestId!==undefined&&value.requestId!==expected.requestId||typeof value.callId!=='string'||!value.callId||value.callId.length>1024||value.callId!==expected.callId||!['camera','screen'].includes(value.kind)||value.kind!==expected.kind||typeof value.sourceId!=='string'||!value.sourceId||value.sourceId.length>2048||value.sourceId!==expected.sourceId||!['unchanged','stopped'].includes(value.outcome))return;
+  return {requestId:value.requestId,callId:value.callId,kind:value.kind,sourceId:value.sourceId,outcome:value.outcome};
+}
+const inMediaTransition=call=>call?.mediaTransition&&call.mediaTransition.status!=='completed'&&!(call.state==='connected'&&['failed','cancelled'].includes(call.mediaTransition.status)&&call.mediaTransition.audioReady===true);
+const parseMediaTransition=raw=>{
+  if(raw===undefined)return;
+  const time=value=>typeof value==='number'?value:typeof value==='string'?Date.parse(value):NaN;
+  const startedAt=time(raw?.startedAt),finishedAt=raw?.finishedAt===undefined?undefined:time(raw.finishedAt);
+  if(!raw||raw.kind!=='screen'||raw.interruption!==true||!['preparing','closing','negotiating','connecting','restoring','completed','failed','cancelled'].includes(raw.status)||!Number.isFinite(startedAt)||startedAt<0||finishedAt!==undefined&&(!Number.isFinite(finishedAt)||finishedAt<0)||raw.audioReady!==undefined&&typeof raw.audioReady!=='boolean')throw error('INVALID_STATUS','无效的媒体切换状态');
+  return {kind:'screen',status:raw.status,startedAt,interruption:true,...(finishedAt===undefined?{}:{finishedAt}),...(raw.audioReady===undefined?{}:{audioReady:raw.audioReady}),...(typeof raw.requestId==='string'?{requestId:raw.requestId.slice(0,128)}:{}),...(typeof raw.error==='string'?{error:raw.error.slice(0,500)}:{}),...(typeof raw.errorCode==='string'?{errorCode:raw.errorCode.slice(0,64)}:{})};
+};
 const sameCall = (left,right) => {
   const {updatedAt: _leftTime,...a}=left, {updatedAt: _rightTime,...b}=right;
   return isDeepStrictEqual(a,b);
@@ -26,9 +38,13 @@ export class QqControl extends EventEmitter {
   async request(route,body,requestId,signal) {
     const url = new URL(this.config.url);
     if (!['http:','https:'].includes(url.protocol) || url.username || url.password || (url.protocol==='http:'&&!['127.0.0.1','localhost','[::1]'].includes(url.hostname))) throw error('INVALID_URL','QQ 控制桥必须是本机 HTTP 或远程 HTTPS');
-    const signals=[AbortSignal.timeout(route.startsWith('/v1/video/')?20000:4000)]; if(this.abort)signals.push(this.abort.signal); if(signal)signals.push(signal);
-    const response=await fetch(new URL(route,url),{method:body?'POST':'GET',headers:{Authorization:`Bearer ${this.config.token}`,...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify({...body,requestId:requestId||randomUUID()}):undefined,signal:AbortSignal.any(signals)});
-    const result=await response.json(); if(!response.ok||result?.ok!==true) throw error(result?.error?.code||'QQ_BRIDGE_ERROR',result?.error?.message||'QQ 桥接请求失败');
+    const signals=[AbortSignal.timeout(route==='/v1/video/send'?45000:route.startsWith('/v1/video/')?20000:4000)]; if(this.abort)signals.push(this.abort.signal); if(signal)signals.push(signal);
+    const requestBody=body?{...body,requestId:requestId||randomUUID()}:undefined;
+    const response=await fetch(new URL(route,url),{method:body?'POST':'GET',headers:{Authorization:`Bearer ${this.config.token}`,...(body?{'Content-Type':'application/json'}:{})},body:requestBody?JSON.stringify(requestBody):undefined,signal:AbortSignal.any(signals)});
+    const result=await response.json(); if(!response.ok||result?.ok!==true){
+      const proof=route==='/v1/video/send'?readVideoSendFailure(result?.error?.videoSendFailure,requestBody):undefined;
+      throw Object.assign(error(result?.error?.code||'QQ_BRIDGE_ERROR',result?.error?.message||'QQ 桥接请求失败'),proof?{videoSendFailure:proof}:{});
+    }
     return result.data;
   }
   identity(state) {
@@ -101,6 +117,7 @@ export class QqControl extends EventEmitter {
     const id=`${this.bootId}:${this.linkEpoch}:${c.id}`;const old=this.calls.get(id);
     if(old&&terminal(old.state)&&!terminal(state))return;
     const next={id,nativeId:c.id,kind:c.kind==='group'?'group':'direct',direction:c.direction==='outgoing'?'outgoing':'incoming',state,targetId:String(c.kind==='group'?c.groupId||'unknown':c.direction==='outgoing'?c.peerUin||c.peerUid||'unknown':c.callerUin||c.callerUid||'unknown'),createdAt:old?.createdAt??(Date.parse(c.inviteAt||c.createdAt)||Date.now()),participants:Array.isArray(c.participants)?[...new Set(c.participants.filter(p=>p&&typeof p.uid==='string').map(p=>p.uid))].sort().slice(0,500).map(id=>({id,identity:'platform'})):[],muted:old?.muted??false,error:callError};
+    next.mediaTransition=parseMediaTransition(c.mediaTransition);
     this.update(next);
   }
   update(call) {
@@ -145,16 +162,32 @@ export class QqControl extends EventEmitter {
   }
   async video(op,args,requestId,signal) {
     await this.verify(signal); const lifecycle=this.lifecycle,epoch=this.linkEpoch,bootId=this.bootId;
-    const call=this.calls.get(args.callId),cleanup=['unsubscribe','stop','state'].includes(op);
+    if(op==='sources'&&args.callId===undefined){
+      const sources=await this.request('/v1/video/sources',undefined,undefined,signal);
+      await this.verify(signal);
+      if(this.stopped||this.offline||this.lifecycle!==lifecycle||this.linkEpoch!==epoch||this.bootId!==bootId)throw error('STALE_CONNECTION','枚举视频来源期间控制连接已改变');
+      return sources;
+    }
+    const call=this.calls.get(args.callId),cleanup=['unsubscribe','stop','state','cancel'].includes(op);
     if(!call||!call.id.startsWith(`${bootId}:${epoch}:`)||(!cleanup&&call.state!=='connected'))throw error('STALE_CALL','视频请求不属于当前已连接的通话');
-    if(!['state','sources','subscribe','unsubscribe','frame','send','stop','write'].includes(op))throw error('INVALID_REQUEST','未知视频操作');
+    if(!['state','sources','subscribe','unsubscribe','frame','send','stop','write','cancel'].includes(op))throw error('INVALID_REQUEST','未知视频操作');
     if(op==='send'&&args.framing!==undefined&&(!['full','portrait-safe'].includes(args.framing)||args.kind!=='camera'||args.sourceId!=='external-frames'))throw error('INVALID_SOURCE','画幅仅适用于external-frames摄像头渠道');
     let result;
-    if(op==='state'||op==='sources')result=await this.request(`/v1/video/${op}`,undefined,undefined,signal);
+    try {
+    if(op==='state'||op==='sources')result=await this.request(`/v1/video/${op}?${new URLSearchParams({callId:call.nativeId})}`,undefined,undefined,signal);
     else if(op==='frame')result=await this.request(`/v1/video/frame?${new URLSearchParams({callId:call.nativeId,trackId:args.trackId})}`,undefined,undefined,signal);
-    else result=await this.request(`/v1/video/${op}`,{callId:call.nativeId,...(op==='subscribe'?{uid:args.participantId,kind:args.kind}:op==='unsubscribe'?{trackId:args.trackId}:op==='send'?{kind:args.kind,sourceId:args.sourceId,...(args.framing===undefined?{}:{framing:args.framing})}:op==='write'?{kind:args.kind,encoding:args.encoding,width:args.width,height:args.height,sequence:args.sequence,timestamp:args.timestamp,data:args.data}:{kind:args.kind})},requestId,signal);
+    else result=await this.request(`/v1/video/${op}`,{callId:call.nativeId,...(op==='cancel'?{targetRequestId:args.targetRequestId}:op==='subscribe'?{uid:args.participantId,kind:args.kind}:op==='unsubscribe'?{trackId:args.trackId}:op==='send'?{kind:args.kind,sourceId:args.sourceId,...(args.framing===undefined?{}:{framing:args.framing})}:op==='write'?{kind:args.kind,encoding:args.encoding,width:args.width,height:args.height,sequence:args.sequence,timestamp:args.timestamp,data:args.data}:{kind:args.kind})},requestId,signal);
+    }catch(e){
+      if(op==='send'){
+        const proof=readVideoSendFailure(e.videoSendFailure,{requestId,callId:call.nativeId,kind:args.kind,sourceId:args.sourceId});
+        delete e.videoSendFailure;
+        if(proof&&!this.stopped&&!this.offline&&this.lifecycle===lifecycle&&this.linkEpoch===epoch&&this.bootId===bootId)e.videoSendFailure={...proof,callId:call.id};
+      }
+      throw e;
+    }
     if(this.stopped||this.offline||this.lifecycle!==lifecycle||this.linkEpoch!==epoch||this.bootId!==bootId)throw error('RESULT_UNKNOWN','视频操作期间控制连接已改变');
     if(op==='sources')return result;
+    if(op==='cancel')return result;
     if(op==='write'){if(result?.callId!==call.nativeId)throw error('INVALID_VIDEO','视频写入回执来自另一通话');return {...result,callId:call.id};}
     if(op==='frame'){
       if(result===null)return null;
@@ -164,6 +197,7 @@ export class QqControl extends EventEmitter {
     if(result?.sessionId!==null&&result?.sessionId!==call.nativeId)throw error('STALE_CALL','视频会话已改变');
     return {...result,sessionId:result.sessionId===null?null:call.id};
   }
+  async cancelVideoTransition(callId,requestId,targetRequestId) { return this.video('cancel',{callId,targetRequestId},requestId); }
   async stop() { this.stopped=true;this.lifecycle++;this.abort?.abort();clearTimeout(this.timer);this.fail('QQ 控制桥已停止'); }
 }
 
@@ -179,6 +213,7 @@ export async function createDaemon(config,{control,audio=createAudioBackend(conf
   if(typeof config.account?.selfId!=='string'||!config.account.selfId||typeof config.account.platform!=='string'||!config.account.platform)throw new Error('请配置桥接账号标识');
   let peer,peerAbort,activeAudio,startingAudio,mediaStop,stopping=false,stopPromise,mediaError,mediaReady=false,configuring=false,syncQueued;
   let operationTail=Promise.resolve();
+  let audioCheckTimer,audioRetryDelay=1000;
   const playback=new Map();
   const serial=task=>{const job=operationTail.then(task);operationTail=job.catch(()=>{});return job;};
   const authorized=req=>{const a=Buffer.from(req.headers.authorization||''),b=Buffer.from(`Bearer ${config.token}`);return a.length===b.length&&timingSafeEqual(a,b);};
@@ -261,6 +296,7 @@ export async function createDaemon(config,{control,audio=createAudioBackend(conf
   const revokeVideo=(callId,owner)=>{
     const jobs=[];
     for(const entry of videoSessions.values())if((callId===undefined||entry.callId===callId)&&(owner===undefined||entry.owner===owner)){
+      if(entry.screenRequestId&&typeof control.cancelVideoTransition==='function')void control.cancelVideoTransition(entry.callId,randomUUID(),entry.screenRequestId).catch(videoNotice);
       entry.revoked=true;closeVideoOutputs(entry);
       if(!entry.cleanup)entry.cleanup=videoSerial(()=>cleanupVideo(entry)).finally(()=>{entry.cleanup=undefined;});
       jobs.push(entry.cleanup);
@@ -268,6 +304,15 @@ export async function createDaemon(config,{control,audio=createAudioBackend(conf
     return Promise.all(jobs);
   };
   const videoOperation=async(socket,op,args,requestId)=>{
+    if(op==='sources'&&args.callId===undefined){
+      requireOwner(socket);if(typeof control.video!=='function')throw error('CAPABILITY_UNAVAILABLE','控制桥没有视频来源接口');
+      const result=await control.video('sources',{});requireOwner(socket);return result;
+    }
+    if(op==='cancel'){
+      const call=videoCall(socket,args.callId,false);
+      if(typeof args.targetRequestId!=='string'||!/^[A-Za-z0-9._:-]{1,128}$/.test(args.targetRequestId))throw error('INVALID_REQUEST','取消媒体切换需要明确的原始请求标识');
+      return typeof control.cancelVideoTransition==='function'?control.cancelVideoTransition(call.id,requestId,args.targetRequestId):{cancelled:false};
+    }
     const cleanup=['clear','unsubscribe','stop'].includes(op),call=videoCall(socket,args.callId,!cleanup);
     let entry=videoSessions.get(call.id);
     if(op==='clear'){if(entry){entry.revoked=true;await cleanupVideo(entry);}return {cleared:true};}
@@ -294,24 +339,35 @@ export async function createDaemon(config,{control,audio=createAudioBackend(conf
       if(typeof args.sourceId!=='string'||!args.sourceId||args.sourceId.length>2048)throw error('INVALID_SOURCE','必须明确选择视频来源');
       if(args.framing!==undefined&&(!['full','portrait-safe'].includes(args.framing)||args.kind!=='camera'||args.sourceId!=='external-frames'))throw error('INVALID_SOURCE','画幅仅适用于external-frames摄像头渠道，必须为full或portrait-safe');
       const sources=await control.video('sources',{callId:call.id});videoCall(socket,call.id);
-      source=Array.isArray(sources)&&sources.find(source=>source.id===args.sourceId&&source.kind===args.kind);
+      source=Array.isArray(sources)&&sources.find(source=>source.id===args.sourceId&&(source.kind===args.kind||source.channels?.includes(args.kind)));
       if(!source)throw error('INVALID_SOURCE','视频来源不在当前列表中');
     }
     if(op==='stop'&&!['camera','screen'].includes(args.kind)||op==='unsubscribe'&&(typeof args.trackId!=='string'||!args.trackId||args.trackId.length>512))throw error('INVALID_REQUEST','无效视频清理参数');
     if(!entry){entry={callId:call.id,owner:socket,tracks:new Map(),sending:new Set(),outputs:new Map(),drains:new Set(),revoked:false};videoSessions.set(call.id,entry);}
     const previousOutput=entry.outputs.get(args.kind),reuseOutput=op==='send'&&previousOutput&&!previousOutput.closed&&previousOutput.sourceId===args.sourceId&&previousOutput.framing===(args.framing??'full');
     if((op==='send'||op==='stop')&&!reuseOutput){await Promise.allSettled(closeVideoOutputs(entry,args.kind));videoCall(socket,call.id,!cleanup);}
+    const alreadySending=entry.sending.has(args.kind);
     let reserved;
     if(op==='subscribe'){
       const key=`${args.kind}\0${args.participantId}`;reserved=entry.tracks.get(key);
       if(!reserved&&entry.tracks.size>=4)throw error('VIDEO_LIMIT','同时最多订阅四路视频');
       if(!reserved){reserved={participantId:args.participantId,kind:args.kind,sequence:-1};entry.tracks.set(key,reserved);}
-    }else if(op==='send')entry.sending.add(args.kind);
+    }else if(op==='send'){entry.sending.add(args.kind);if(args.kind==='screen')entry.screenRequestId=requestId;}
     // Do not abort native mutations with the peer's lifetime signal: retain the
     // bounded request outcome, then run the queued owner's cleanup even if gone.
     let result;
     try{result=await control.video(op,{callId:call.id,...(op==='subscribe'?{participantId:args.participantId,kind:args.kind}:op==='unsubscribe'?{trackId:args.trackId}:op==='send'?{kind:args.kind,sourceId:args.sourceId,...(args.framing===undefined?{}:{framing:args.framing})}:{kind:args.kind})},requestId);}
-    catch(e){entry.revoked=true;closeVideoOutputs(entry);throw e;}
+    catch(e){
+      const proof=op==='send'&&readVideoSendFailure(e?.videoSendFailure,{requestId,callId:call.id,kind:args.kind,sourceId:args.sourceId});
+      // A matched preflight/cleanup receipt concerns only this channel. Do not
+      // invent an unknown sender or revoke independent camera/receive media.
+      if(proof){
+        if(!alreadySending||proof.outcome==='stopped')entry.sending.delete(args.kind);
+        if(proof.outcome==='stopped')closeVideoOutputs(entry,args.kind);
+      }else if(op==='send'&&args.kind==='screen'&&!alreadySending&&e.code==='VIDEO_SCENE_UNSUPPORTED')entry.sending.delete(args.kind);
+      else{entry.revoked=true;closeVideoOutputs(entry);}
+      throw e;
+    }
     if(op==='send'&&(result?.sending?.[args.kind]?.framing??'full')!==(args.framing??'full')){entry.revoked=true;closeVideoOutputs(entry);throw error('INVALID_VIDEO','后端未确认请求的视频画幅，请先停止此渠道');}
     if(op==='subscribe'){
       const track=result?.tracks?.find(item=>item.uid===reserved.participantId&&item.kind===reserved.kind&&item.subscribed);
@@ -355,7 +411,7 @@ export async function createDaemon(config,{control,audio=createAudioBackend(conf
   const mediaAuthorized=()=>mediaReady&&control.offline!==true&&control.stopped!==true&&(!config.desktop||control.caps.receiveAudio?.supported===true&&control.caps.sendAudio?.supported===true);
   const status=type=>{
     const caps=structuredClone(control.caps), canAudio=mediaAuthorized();
-    for(const key of ['receiveAudio','sendAudio','mute'])caps[key]={supported:canAudio,reason:canAudio?'已配置独立音频设备':config.desktop?'请先校准并验证桌面账号、目标和虚拟音频路由':'请先完成音频设备诊断'};
+    for(const key of ['receiveAudio','sendAudio','mute'])caps[key]={supported:canAudio,reason:canAudio?'已配置独立音频设备':config.desktop?'请先校准并验证桌面账号、目标和虚拟音频路由':mediaError||lastDiagnostics.find(d=>d.level==='error')?.message||'音频设备正在自动检查'};
     return {type,version:1,account:config.account,audioFormat:{sampleRate:config.audio.sampleRate||48000,channels:config.audio.channels||1,encoding:'pcm_s16le'},capabilities:caps,calls:[...control.calls.values()].map(safeCall),diagnostics:lastDiagnostics};
   };
   let lastStatusOwner,lastStatus;
@@ -370,9 +426,10 @@ export async function createDaemon(config,{control,audio=createAudioBackend(conf
     mediaError=e.message||String(e);mediaReady=false;
     lastDiagnostics=[...lastDiagnostics.filter(d=>d.id!=='media-runtime'),{id:'media-runtime',level:'error',message:mediaError}];
     send({type:'error',message:mediaError});sendStatus();
+    scheduleAudioCheck();
   };
-  const desired=()=>!stopping&&!configuring&&mediaAuthorized()&&owns(peer)?[...control.calls.values()].find(c=>c.state==='connected'):undefined;
-  const active=()=>activeAudio&&owns(activeAudio.owner)&&control.calls.get(activeAudio.id)?.state==='connected'&&mediaAuthorized();
+  const desired=()=>!stopping&&!configuring&&mediaAuthorized()&&owns(peer)?[...control.calls.values()].find(c=>c.state==='connected'&&!inMediaTransition(c)):undefined;
+  const active=()=>activeAudio&&owns(activeAudio.owner)&&control.calls.get(activeAudio.id)?.state==='connected'&&!inMediaTransition(control.calls.get(activeAudio.id))&&mediaAuthorized();
   const stopAudio=()=>{
     activeAudio=undefined;
     if(mediaStop)return mediaStop;
@@ -404,13 +461,32 @@ export async function createDaemon(config,{control,audio=createAudioBackend(conf
       if(desired()&&!activeAudio)void syncMedia();
     });return syncQueued;
   };
+  // A bridge may start before its private audio server/devices. Recover their
+  // availability independently of the console's optional diagnostics button.
+  // Retries never dial, change routes, unmute or replay queued audio.
+  const refreshAudio=async(retry=false)=>{
+    lastDiagnostics=await diagnostics(retry);
+    if(stopping)return lastDiagnostics;
+    await syncMediaNow();sendStatus();
+    if(mediaReady){clearTimeout(audioCheckTimer);audioCheckTimer=undefined;audioRetryDelay=1000;}
+    else scheduleAudioCheck();
+    return lastDiagnostics;
+  };
+  function scheduleAudioCheck(){
+    if(stopping||mediaReady||audioCheckTimer||configuring)return;
+    audioCheckTimer=setTimeout(()=>{
+      audioCheckTimer=undefined;if(stopping||mediaReady)return;
+      audioRetryDelay=Math.min(30000,audioRetryDelay*2);
+      void serial(()=>refreshAudio(true)).catch(reportMediaError);
+    },audioRetryDelay);audioCheckTimer.unref();
+  }
   const server=http.createServer(async(req,res)=>{
     if(req.method==='GET'&&req.url==='/healthz'){res.writeHead(200,{'Content-Type':'application/json'});res.end('{"ok":true}');return;}
     if(!authorized(req)){res.writeHead(401);res.end();return;}
     try { let body;
       if(req.method==='GET'&&req.url==='/v1/status')body=status('status');
       else if(req.method==='GET'&&req.url==='/v1/devices')body=await audio.listDevices();
-      else if(req.method==='GET'&&req.url==='/v1/diagnostics')body=await serial(async()=>{lastDiagnostics=await diagnostics();await syncMediaNow();sendStatus();return lastDiagnostics;});
+      else if(req.method==='GET'&&req.url==='/v1/diagnostics')body=await serial(()=>refreshAudio());
       else {res.writeHead(404);res.end();return;}
       res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify(body));
     }catch{res.writeHead(500);res.end('{"error":"diagnostics failed"}');}
@@ -443,7 +519,7 @@ export async function createDaemon(config,{control,audio=createAudioBackend(conf
         if(busy>=16)throw error('BACKPRESSURE','媒体操作队列已满');
         busy++;
         const entry={fingerprint,settled:false};
-        entry.job=(request.op.startsWith('video.')?videoSerial:serial)(async()=>{
+        entry.job=(request.op==='video.cancel'?task=>task():request.op.startsWith('video.')?videoSerial:serial)(async()=>{
           requireOwner(socket); const args=request.args||{};let result;
           if(request.op.startsWith('video.'))result=await videoOperation(socket,request.op.slice(6),args,request.id);
           else if(['accept','reject','hangup','dial'].includes(request.op)) {
@@ -479,18 +555,20 @@ export async function createDaemon(config,{control,audio=createAudioBackend(conf
               try {requireIdle();}catch(e){try{await persistAudio(old);}catch(rollback){reportMediaError(rollback);}throw e;}
               Object.assign(config.audio,settings);if(audio.config)Object.assign(audio.config,settings);
               mediaError=undefined;lastDiagnostics=await diagnostics();sendStatus();result={saved:true};
-            }finally{configuring=false;}
+            }finally{configuring=false;scheduleAudioCheck();}
           }else if(request.op==='diagnostics'){
-            lastDiagnostics=await diagnostics(true);requireOwner(socket);await syncMediaNow();result=lastDiagnostics;sendStatus();
+            requireOwner(socket);result=await refreshAudio(true);requireOwner(socket);
           }else if(['audio.clear','mute','audio.write'].includes(request.op)){
             const callId=args.callId||args.frame?.callId;const call=control.calls.get(callId);
-            if(!call||call.state!=='connected'||!active()||activeAudio.id!==callId)throw error('NOT_CONNECTED','通话或音频设备尚未接通');
+            if(request.op==='audio.write'&&inMediaTransition(call))throw error('MEDIA_TRANSITION','媒体渠道正在切换或切换失败，暂不能发送音频');
+            const transitionMute=request.op==='mute'&&call&&!terminal(call.state)&&inMediaTransition(call);
+            if(!transitionMute&&(!call||call.state!=='connected'||!active()||activeAudio.id!==callId))throw error('NOT_CONNECTED','通话或音频设备尚未接通');
             if(request.op==='audio.clear'){await audio.clear();result={cleared:true};}
             else if(request.op==='mute'){
               if(typeof args.muted!=='boolean')throw error('INVALID_REQUEST','muted 必须是布尔值');
               await audio.setMuted(args.muted);requireOwner(socket);
               const current=control.calls.get(callId);
-              if(current?.state!=='connected')throw error('STALE_CALL','静音期间通话已结束');
+              if(!current||terminal(current.state)||current.state!=='connected'&&!inMediaTransition(current))throw error('STALE_CALL','静音期间通话已结束');
               control.update({...current,muted:args.muted});result={muted:args.muted};
             }else{
               if(call.muted)throw error('MUTED','麦克风已静音');const f=args.frame;
@@ -505,7 +583,7 @@ export async function createDaemon(config,{control,audio=createAudioBackend(conf
             }
           }else throw error('UNKNOWN_OPERATION','未知操作');
           return {type:'reply',id:request.id,ok:true,data:result};
-        }).catch(e=>({type:'reply',id:request.id,ok:false,error:{code:e.code||'BRIDGE_ERROR',message:e.message}})).finally(()=>{busy--;entry.settled=true;});
+        }).catch(e=>{const proof=request.op==='video.send'&&readVideoSendFailure(e?.videoSendFailure,{requestId:request.id,callId:request.args?.callId,kind:request.args?.kind,sourceId:request.args?.sourceId});return {type:'reply',id:request.id,ok:false,error:{code:e.code||'BRIDGE_ERROR',message:e.message,...(proof?{videoSendFailure:proof}:{})}};}).finally(()=>{busy--;entry.settled=true;});
         seen.set(request.id,entry);
         // Never evict an in-flight request: a duplicate must share its outcome.
         for(const [id,cached]of seen)if(seen.size>256&&cached.settled)seen.delete(id);
@@ -525,7 +603,7 @@ export async function createDaemon(config,{control,audio=createAudioBackend(conf
         if(entry.tracks.get(key)===track)entry.tracks.delete(key);
       }).catch(videoNotice);
     }
-    if(call.state!=='connected'&&(activeAudio?.id===call.id||startingAudio?.id===call.id))void stopAudio().catch(reportMediaError);void syncMedia();
+    if((call.state!=='connected'||inMediaTransition(call))&&(activeAudio?.id===call.id||startingAudio?.id===call.id))void stopAudio().catch(reportMediaError);void syncMedia();
   };
   const onStatus=()=>{lastDiagnostics=[...(control.notices||[]),...lastDiagnostics.filter(d=>!['qq','gap'].includes(d.id))];sendStatus();if(!mediaAuthorized()&&(activeAudio||startingAudio))void stopAudio().catch(reportMediaError);void syncMedia();};
   const onAudio=frame=>{if(active())sendTo(activeAudio.owner,{type:'audio',frame:{...frame,encoding:'pcm_s16le',callId:activeAudio.id,data:Buffer.from(frame.data).toString('base64')}});};
@@ -538,7 +616,7 @@ export async function createDaemon(config,{control,audio=createAudioBackend(conf
   control.on('call',onCall);control.on('status',onStatus);audio.on('audio',onAudio);audio.on('playback',onPlayback);audio.on('error',onError);
   const stop=()=>{
     if(stopPromise)return stopPromise;
-    stopping=true;clearInterval(videoTimer);peerAbort?.abort();peer?.terminate();peer=undefined;
+    stopping=true;clearInterval(videoTimer);clearTimeout(audioCheckTimer);peerAbort?.abort();peer?.terminate();peer=undefined;
     stopPromise=(async()=>{
       control.off('call',onCall);control.off('status',onStatus);
       const videoCleanup=revokeVideo();
@@ -556,7 +634,7 @@ export async function createDaemon(config,{control,audio=createAudioBackend(conf
       if(stopping)throw error('STOPPED','桥接已经停止');
       try {
         await new Promise((resolve,reject)=>{const fail=e=>{server.off('listening',ready);reject(e);};const ready=()=>{server.off('error',fail);resolve();};server.once('error',fail);server.once('listening',ready);server.listen(config.port??6120,config.host||'127.0.0.1');});
-        await control.start();return server.address();
+        await control.start();await serial(()=>refreshAudio(true));return server.address();
       }catch(e){await stop().catch(()=>{});throw e;}
     },
     stop,

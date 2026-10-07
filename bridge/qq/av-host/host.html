@@ -74,7 +74,25 @@
       window.koishiRTCQQVideoSurface = (width, height) => {
         const plugin = document.getElementById('avsdk');
         plugin.width = String(width); plugin.height = String(height);
+        return window.koishiRTCQQVideoPresent(width, height);
       };
+      window.koishiRTCQQVideoPresent = (width, height) => new Promise((resolve, reject) => {
+        let done = false, frames = 0;
+        const timer = setTimeout(() => {
+          done = true; reject(new Error('QQ video surface did not reach the requested viewport size'));
+        }, 1000);
+        const check = () => {
+          if (done) return;
+          const bounds = document.getElementById('avsdk').getBoundingClientRect();
+          if (window.innerWidth === width && window.innerHeight === height &&
+              bounds.width === width && bounds.height === height && window.devicePixelRatio === 1) {
+            // One RAF runs before paint; a second frame crosses that boundary.
+            if (++frames >= 2) { done = true; clearTimeout(timer); resolve(); return; }
+          } else frames = 0;
+          requestAnimationFrame(check);
+        };
+        requestAnimationFrame(check);
+      });
 
       // Install listeners before insertion can start native initialization.
       // RegisterChannelListener may emit before window.load on a fast machine.

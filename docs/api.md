@@ -28,11 +28,28 @@ const call = await control.dial(providerId, {
 
 QQ 主动创建群通话须检查 `capabilities.startGroup`，然后显式指定 `groupMode: 'create'`；`inviteeIds` 使用受邀群成员的 QQ 号码字符串，桥接核实并转换为原生 UID。`groupMode: 'join'` 表示选择已有活跃房间，检查 `joinGroup`；`join` 不能携带邀请名单。其他平台按自己的后端能力处理，不假设两种群操作等价。
 
-私聊默认为 `media: 'audio'`。主动视频邀请使用 `control.dial(providerId, { kind: 'direct', targetId, media: 'video' })`，与语音邀请一样检查 `dial` 能力。这个操作仅发出邀请，不自动选中或打开物理摄像头；接通后，消费插件另行调用 `sendVideo(callId, { kind: 'camera', sourceId })` 明确选择来源，也可选择 `external-frames` 后通过 `writeVideo` 提供 JPEG。
+私聊默认为 `media: 'audio'`。主动视频邀请使用 `control.dial(providerId, { kind: 'direct', targetId, media: 'video' })`，与语音邀请一样检查 `dial` 能力。不携带 `initialVideo` 时只发邀请，保持原有行为；接通后也可调用 `sendVideo(callId, { kind: 'camera', sourceId })` 选择来源，或选择 `external-frames` 后通过 `writeVideo` 提供 JPEG。
 
-显式的屏幕共享邀请使用 `control.dial(providerId, { kind: 'direct', targetId, media: 'screen' })`，并检查独立能力 `dialScreen`；不能用接通后的 `shareScreen` 代替这个拨号能力。`media: 'video'` 和 `media: 'screen'` 都不用于群通话，也不会自动升级已有语音通话。QQ 普通私聊场景不支持屏幕发送，应新建明确的屏幕共享邀请；接通后仍需选择 `sendVideo` 来源。控制台的“邀请类型”提供语音、视频、屏幕共享三个选项，默认仍是语音。
+显式的屏幕共享邀请使用 `control.dial(providerId, { kind: 'direct', targetId, media: 'screen' })`，并检查独立能力 `dialScreen`；不能用接通后的 `shareScreen` 代替这个拨号能力。`media: 'video'` 和 `media: 'screen'` 都不用于群通话；这些拨号参数只创建新邀请，不用于修改已有通话。对于支持转换的 QQ 后端，已接通语音上显式 `sendVideo(callId, { kind: 'screen', sourceId })` 会走官方媒体切换流程，保留逻辑通话及控制权，但原生音频会短暂中断；摄像头与屏幕双路是否可用仍以后端实际能力为准。
+
+需要接通即发送画面时，消费插件在拨号前明确指定 `initialVideo`。可先用 `ctx.rtc.manager.availableVideoSources(providerId)` 只读枚举来源；这个可选后端接口不取得通话控制权，不打开设备或抓取画面。建议视频邀请携带 camera 计划、屏幕邀请携带 screen 计划，并优先选择用户确认的 `sourceType: 'generated'` 动态测试画面。不能把来源列表第一项当作默认相机。
+
+```ts
+const sources = await ctx.rtc.manager.availableVideoSources(providerId)
+// sourceId 来自用户明确选择或插件明确配置，必须与对应渠道匹配。
+const call = await control.dial(providerId, {
+  kind: 'direct', targetId, media: 'video',
+  initialVideo: [{ kind: 'camera', sourceId }],
+}, signal)
+```
+
+计划最多包含两条，camera/screen 各一条；`framing` 沿用 `sendVideo` 的规则，只允许 external-frames 摄像头。媒体接通后，manager 在原控制权下重新核对真实来源列表，再启动一次；异步能力发现最多等待15秒。`external-frames` 仅开启帧输入渠道，消费插件仍须提供 JPEG。普通语音拨号不带计划就不会自动打开任何视频来源。
+
+挂断、停止对应视频渠道、释放控制权、控制句柄卸载、拨号信号取消或后端退出会撤销尚未完成的计划；切换到新来源时，旧请求迟到完成后的清理会先执行。失败会通过 manager 的 `diagnostic` 事件（包含 providerId、callId 和具体错误）进入控制台动态，不自动挂断、不重新选源或盲目重试。初始发送成功也不代表对端已收到画面。
 
 `dial()` 返回可追踪的通话，不保证已经接通；监听快照中的 `state === 'connected'`。QQ 控制请求返回“submitted”也不能解释为对方已接听。取消信号仅在未提交前保证不执行，网络断开或超时可能意味着结果未知，不要盲目重试拨号。平台回调决定最终状态。
+
+媒体切换期间，`CallSnapshot.mediaTransition` 提供 `kind: 'screen'`、`status`、毫秒时间戳 `startedAt`、`interruption: true`，以及可选的 `requestId`、`finishedAt`、`error`、`errorCode`、`audioReady`。状态包括 preparing、closing、negotiating、connecting、restoring、completed、failed、cancelled。切换中的音频写入明确拒绝为 `MEDIA_TRANSITION`；静音仍可设置，恢复后沿用该状态。failed/cancelled 只有在通话仍 connected 且原生明确给出 `audioReady: true` 时才恢复音频，不能仅凭 connected 推断旧引擎仍可发声。桌面 `video.send` 最多等待45秒；停止、释放和断连会按原发送请求 ID 取消尚未完成的转换，迟到取消不能影响新的发送。
 
 ## 连续音频
 
@@ -169,14 +186,16 @@ try {
 }
 ```
 
+视频发送的来源校验失败与提交结果未知分别处理。后端可通过严格绑定本次请求、通话、渠道和来源的 `videoSendFailure` 证明目标发送器未改变或已停止，允许更正来源后直接重试；超时、断连或证据不匹配仍需显式停止该渠道。摄像头恢复失败不会被误当成屏幕渠道尚未发送。
+
 发送单帧最多 256 KiB、2073600 像素且每边不超过 4096，支持横向或纵向全高清。序号在该次来源启动期间严格递增；重复开启同一已发送来源不会重置序号。每个发送渠道只保留一个正在提交的帧和一个最新待发帧，旧待发帧得到 `dropped` 回执。帧写入不进入通话控制请求的重试账本；失败或结果未知时不自动重放旧帧。
 
 `VideoWriteReceipt` 包含 `callId`、`kind`、`sequence`、`state`、`evidence`、可选 `acceptedBytes` / `error`；状态为 `accepted`、`rendered`、`submitted`、`dropped` 或 `failed`。这些状态只说明对应的本端处理阶段，`sendVideo` 的原生 ACK 也不证明远端收到。停止来源、释放控制权、断连或插件卸载会丢弃待发帧并清理发送；不等同于挂断通话。
 
-目前 QQ 原生视频实现仅针对已核对画像的 Linux；ARM64 正在真实通话验收，不能把静态 ABI、离线帧回归或本端渲染回执称作远端视频验收通过。Windows / macOS 的音频支持不代表视频已实现。
+QQ 原生视频已有 Linux、Windows、macOS 实现及对应已核对的版本画像。Linux ARM64 已进行真实音视频通话验证；Windows/macOS 的设备、权限、原生渲染和对端收发仍需各平台实机验收。不能把静态 ABI、离线帧回归或本端渲染回执称作远端视频验收通过。
 
 ## 扩展平台
 
-实现 `CallProvider` 后 `await ctx.rtc.register(ctx, provider)`。接口位于公开的 `./core` 导出；后端通过 `provider.events.emit('event', event)` 发布 `call`、`audio`、`video`、`playback`、`availability`、`error`。可选的视频方法包括 `videoState`、`videoSources`、`subscribeVideo`、`unsubscribeVideo`、`sendVideo`、`stopVideo`、`writeVideo` 和内部资源清理 `clearVideo`；未实现时必须关闭对应能力。
+实现 `CallProvider` 后 `await ctx.rtc.register(ctx, provider)`。接口位于公开的 `./core` 导出；后端通过 `provider.events.emit('event', event)` 发布 `call`、`audio`、`video`、`playback`、`availability`、`error`。可选的视频方法包括拨号前只读 `availableVideoSources`、`videoState`、`videoSources`、`subscribeVideo`、`unsubscribeVideo`、`sendVideo`、`stopVideo`、`writeVideo` 和内部资源清理 `clearVideo`；未实现时必须关闭对应能力。`initialVideo` 由 manager 消费并从传给 provider 的 dial 参数中移除，后端不得另外自动启动来源。
 
 必须采用真正的平台账号标识、唯一通话 ID、实际连接回调和有界队列。未实现或无法确认的能力返回 `supported:false` 及原因。不要把发送语音消息伪装成实时通话。桌面桥网络与平台调用的回执必须分别处理。

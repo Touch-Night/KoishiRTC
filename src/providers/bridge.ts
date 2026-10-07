@@ -3,8 +3,18 @@ import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import WebSocket from 'ws';
 import { RtcError, validateAudio, validateVideo, validateVideoWrite, validateVideoWriteReceipt } from '../core.js';
-import { unavailableCapabilities, terminalStates } from '../types.js';
-import type { Account, AudioFrame, CallProvider, CallRequest, CallSnapshot, Capabilities, Diagnostic, PlaybackReceipt, ProviderEvent, VideoFrame, VideoKind, VideoTrack, VideoState, VideoSource, VideoSubscribeRequest, VideoSendRequest, VideoWriteFrame, VideoWriteReceipt } from '../types.js';
+import { unavailableCapabilities, terminalStates, mediaTransitionBlocksAudio, readVideoSendFailure } from '../types.js';
+import type { Account, AudioFrame, CallProvider, CallRequest, CallSnapshot, Capabilities, Diagnostic, PlaybackReceipt, ProviderEvent, VideoFrame, VideoKind, VideoTrack, VideoState, VideoSource, VideoSubscribeRequest, VideoSendRequest, VideoWriteFrame, VideoWriteReceipt, MediaTransition, VideoSendFailure } from '../types.js';
+
+function mediaTransition(raw: any): MediaTransition | undefined {
+  if (raw === undefined) return;
+  if (!raw || raw.kind !== 'screen' || raw.interruption !== true || !['preparing','closing','negotiating','connecting','restoring','completed','failed','cancelled'].includes(raw.status) || !Number.isFinite(raw.startedAt) || raw.startedAt < 0 || raw.finishedAt !== undefined && (!Number.isFinite(raw.finishedAt) || raw.finishedAt < 0) || raw.audioReady !== undefined && typeof raw.audioReady !== 'boolean') throw new RtcError('INVALID_STATUS', '桥接返回了无效媒体切换状态。');
+  return { kind: 'screen', status: raw.status, startedAt: raw.startedAt, interruption: true,
+    ...(raw.finishedAt === undefined ? {} : { finishedAt: raw.finishedAt }), ...(raw.audioReady === undefined ? {} : { audioReady: raw.audioReady }),
+    ...(typeof raw.requestId === 'string' ? { requestId: raw.requestId.slice(0,128) } : {}),
+    ...(typeof raw.error === 'string' ? { error: raw.error.slice(0,500) } : {}),
+    ...(typeof raw.errorCode === 'string' ? { errorCode: raw.errorCode.slice(0,64) } : {}) };
+}
 
 export interface BridgeConfig { id: string; url: string; token: string; selfId: string; platform?: string }
 /** Transport only: connection/state acknowledgements are supplied by the desktop bridge. */
@@ -15,7 +25,8 @@ export class DesktopBridgeProvider implements CallProvider {
   private capabilitiesValue = unavailableCapabilities('桌面桥接未连接');
   private snapshots = new Map<string, CallSnapshot>(); private remoteIds = new Map<string, string>();
   private videoTracks = new Map<string, Map<string, VideoTrack>>();
-  private pending = new Map<string, { resolve(value: any): void; reject(error: Error): void; cleanup(): void }>();
+  private pending = new Map<string, { resolve(value: any): void; reject(error: Error): void; cleanup(): void; videoSendScope?: Omit<VideoSendFailure, 'outcome'> }>();
+  private videoTransitions = new Map<string, string>();
   private notices: Diagnostic[] = [];
   private formatValue?: { sampleRate: number; channels: 1 | 2; encoding: 'pcm_s16le' };
   get audioFormat() { return this.formatValue; }
@@ -69,7 +80,10 @@ export class DesktopBridgeProvider implements CallProvider {
     if (packet.type === 'reply' && typeof packet.id === 'string') {
       const pending = this.pending.get(packet.id); if (!pending) return;
       this.pending.delete(packet.id); pending.cleanup();
-      if (packet.ok === true) pending.resolve(packet.data); else pending.reject(new RtcError(String(packet.error?.code || 'BRIDGE_ERROR'), String(packet.error?.message || '桥接操作失败')));
+      if (packet.ok === true) pending.resolve(packet.data); else {
+        const proof = pending.videoSendScope && readVideoSendFailure(packet.error?.videoSendFailure, pending.videoSendScope);
+        pending.reject(Object.assign(new RtcError(String(packet.error?.code || 'BRIDGE_ERROR'), String(packet.error?.message || '桥接操作失败')), proof ? { videoSendFailure: proof } : {}));
+      }
     } else if (packet.type === 'hello' || packet.type === 'status') {
       if (packet.version !== 1 || packet.account?.selfId !== this.account.selfId || packet.account?.platform !== this.account.platform) {
         this.notices = [{ id: 'identity', level: 'error', message: '桥接协议或账号与配置不一致' }]; this.disconnect('桥接协议或账号与配置不一致'); this.socket?.close(1008, 'identity mismatch'); return;
@@ -125,6 +139,7 @@ export class DesktopBridgeProvider implements CallProvider {
     const call: CallSnapshot = { id, providerId: this.id, account: this.account, kind: c.kind, targetId: c.targetId,
       direction: c.direction, state: c.state, createdAt: Number.isFinite(c.createdAt) ? c.createdAt : old?.createdAt ?? Date.now(), updatedAt: Date.now(),
       participants: Array.isArray(c.participants) ? [...new Set<string>(c.participants.filter((p: any) => p && typeof p.id === 'string' && p.id.length < 160 && p.identity === 'platform').map((p: any) => p.id))].sort().slice(0,500).map(id => ({ id, identity: 'platform' as const })) : [], muted: c.muted === true, error: typeof c.error === 'string' ? c.error.slice(0, 500) : undefined };
+    call.mediaTransition = mediaTransition(c.mediaTransition);
     if (call.state !== 'connected') this.videoTracks.delete(id);
     else for (const [trackId, track] of this.videoTracks.get(id) ?? []) if (!call.participants.some(member => member.id === track.participantId)) this.videoTracks.get(id)!.delete(trackId);
     if (old) {
@@ -145,13 +160,16 @@ export class DesktopBridgeProvider implements CallProvider {
     if (this.stopped || !this.verified || !socket || socket.readyState !== WebSocket.OPEN) throw new RtcError('BRIDGE_OFFLINE', '桌面桥接未连接');
     if (this.pending.size >= 100 || socket.bufferedAmount > 512 * 1024) throw new RtcError('BACKPRESSURE', '桥接队列已满');
     const id = randomUUID();
+    const remoteCall = op === 'video.send' && (args as any).kind === 'screen' ? (args as any).callId as string : undefined;
+    if (remoteCall) this.videoTransitions.set(remoteCall, id);
     // Never retry mutating requests: a timeout means unknown, not unexecuted.
     return new Promise((resolve, reject) => {
-      const cleanup = () => { clearTimeout(timer); signal?.removeEventListener('abort', abort); };
+      const cleanup = () => { clearTimeout(timer); signal?.removeEventListener('abort', abort); if (remoteCall && this.videoTransitions.get(remoteCall) === id) this.videoTransitions.delete(remoteCall); };
       const fail = (error: Error) => { if (!this.pending.delete(id)) return; cleanup(); reject(error); };
       const abort = () => fail(new RtcError('ABORTED_UNKNOWN', '等待已取消；已提交操作的执行结果未知。'));
-      const timer = setTimeout(() => fail(new RtcError('BRIDGE_TIMEOUT', '桥接操作超时，执行结果未知；请检查通话状态')), op.startsWith('video.') ? 25000 : 10000);
-      this.pending.set(id, { resolve, reject, cleanup });
+      const timer = setTimeout(() => fail(new RtcError('BRIDGE_TIMEOUT', '桥接操作超时，执行结果未知；请检查通话状态')), op === 'video.send' ? 45000 : op.startsWith('video.') ? 25000 : 10000);
+      const videoSendScope = op === 'video.send' ? { requestId: id, callId: (args as any).callId, kind: (args as any).kind, sourceId: (args as any).sourceId } : undefined;
+      this.pending.set(id, { resolve, reject, cleanup, videoSendScope });
       signal?.addEventListener('abort', abort, { once: true });
       if (signal?.aborted) { abort(); return; }
       try {
@@ -177,6 +195,7 @@ export class DesktopBridgeProvider implements CallProvider {
   async hangup(id: string, signal?: AbortSignal) { await this.request('hangup', { callId: this.remote(id) }, signal); }
   async setMuted(id: string, muted: boolean) { await this.request('mute', { callId: this.remote(id), muted }); }
   async writeAudio(frame: AudioFrame, playbackId: string): Promise<PlaybackReceipt> {
+    if (mediaTransitionBlocksAudio(this.snapshots.get(frame.callId))) throw new RtcError('MEDIA_TRANSITION', '媒体渠道正在切换或切换失败，暂不能发送音频。');
     const receipt = await this.request('audio.write', { frame: { ...frame, callId: this.remote(frame.callId), data: Buffer.from(frame.data).toString('base64') }, playbackId });
     return { ...receipt, callId: frame.callId };
   }
@@ -207,9 +226,20 @@ export class DesktopBridgeProvider implements CallProvider {
   }
   async videoState(id: string) { const remote = this.remote(id); return this.parseVideoState(id, remote, await this.request('video.state', { callId: remote })); }
   async videoSources(id: string): Promise<VideoSource[]> {
-    const raw = await this.request('video.sources', { callId: this.remote(id) });
+    return this.parseVideoSources(await this.request('video.sources', { callId: this.remote(id) }));
+  }
+  async availableVideoSources(): Promise<VideoSource[]> {
+    const epoch = this.epoch, raw = await this.request('video.sources');
+    if (epoch !== this.epoch || !this.verified) throw new RtcError('STALE_CONNECTION', '枚举视频来源期间连接已改变。');
+    return this.parseVideoSources(raw);
+  }
+  private parseVideoSources(raw: any): VideoSource[] {
     if (!Array.isArray(raw) || raw.length > 256 || raw.some(item => !item || typeof item.id !== 'string' || !item.id || item.id.length > 2048 || !['camera','screen'].includes(item.kind) || typeof item.name !== 'string' || item.name.length > 512 || item.sourceType !== undefined && !['device','window','display','frames','generated'].includes(item.sourceType) || item.channels !== undefined && (!Array.isArray(item.channels) || !item.channels.length || item.channels.length > 2 || item.channels.some((kind: unknown) => !['camera','screen'].includes(String(kind))) || !item.channels.includes(item.kind)))) throw new RtcError('INVALID_VIDEO', '后端返回了无效视频来源。');
-    return raw.map(item => ({ id: item.id, kind: item.kind, name: item.name, ...(item.sourceType ? { sourceType: item.sourceType } : {}), ...(item.channels ? { channels: [...item.channels] } : {}) }));
+    return raw.map((item: any) => ({ id: item.id, kind: item.kind, name: item.name, ...(item.sourceType ? { sourceType: item.sourceType } : {}), ...(item.channels ? { channels: [...item.channels] } : {}) }));
+  }
+  async cancelVideoTransition(id: string): Promise<void> {
+    const remote = this.remote(id), targetRequestId = this.videoTransitions.get(remote) ?? this.snapshots.get(id)?.mediaTransition?.requestId;
+    if (targetRequestId) await this.request('video.cancel', { callId: remote, targetRequestId });
   }
   async subscribeVideo(id: string, request: VideoSubscribeRequest): Promise<VideoTrack> {
     const remote = this.remote(id), epoch = this.epoch;
@@ -220,7 +250,17 @@ export class DesktopBridgeProvider implements CallProvider {
     if (!this.videoTracks.has(id)) this.videoTracks.set(id, new Map()); this.videoTracks.get(id)!.set(track.trackId, track); return track;
   }
   async unsubscribeVideo(id: string, trackId: string) { this.videoTracks.get(id)?.delete(trackId); await this.request('video.unsubscribe', { callId: this.remote(id), trackId }); }
-  async sendVideo(id: string, request: VideoSendRequest) { const remote = this.remote(id); return this.parseVideoState(id, remote, await this.request('video.send', { callId: remote, ...request })); }
+  async sendVideo(id: string, request: VideoSendRequest) {
+    const remote = this.remote(id), epoch = this.epoch;
+    try { return this.parseVideoState(id, remote, await this.request('video.send', { callId: remote, ...request })); }
+    catch (error) {
+      const failure = error as Error & { videoSendFailure?: VideoSendFailure };
+      const proof = readVideoSendFailure(failure.videoSendFailure, { callId: remote, kind: request.kind, sourceId: request.sourceId });
+      delete failure.videoSendFailure;
+      if (proof && this.verified && this.epoch === epoch) failure.videoSendFailure = { ...proof, callId: id };
+      throw failure;
+    }
+  }
   async stopVideo(id: string, kind: VideoKind) { const remote = this.remote(id); return this.parseVideoState(id, remote, await this.request('video.stop', { callId: remote, kind })); }
   async writeVideo(frame: VideoWriteFrame): Promise<VideoWriteReceipt> {
     validateVideoWrite(frame); const remote = this.remote(frame.callId), epoch = this.epoch;

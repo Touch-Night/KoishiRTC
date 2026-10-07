@@ -26,6 +26,8 @@ function fixture() {
       Object.assign(this.webContents, { setWindowOpenHandler: handler => this.popup = handler, session: { setPermissionCheckHandler: handler => this.check = handler, setPermissionRequestHandler: handler => this.permit = handler, setDisplayMediaRequestHandler: handler => this.select = handler }, executeJavaScript: async (code, gesture) => { calls.push([code, gesture]); return code.includes('Start') ? { width: 1920, height: 1080 } : true; } });
     }
     async loadFile(file) { this.file = file; }
+    setMenu(menu) { this.menu = menu; }
+    setMenuBarVisibility(visible) { this.menuBarVisible = visible; }
     setContentSize(w,h) { this.size = [w,h]; }
     showInactive() { this.shown = true; }
     isDestroyed() { return this.destroyed; }
@@ -44,6 +46,8 @@ test('selected screen is captured via its own session, no audio, and original ge
   const f=fixture(), source=(await f.host.sources())[1];
   assert.equal(await f.host.open(source,()=>{}),222);
   const win=f.state.windows[0]; assert.deepEqual(win.size,[1280,720]); assert.equal(win.options.webPreferences.nodeIntegration,false);
+  assert.equal(win.options.frame,false); assert.equal(win.options.useContentSize,true); assert.equal(win.options.hasShadow,false);
+  assert.equal(win.menu,null); assert.equal(win.menuBarVisible,false);
   let granted;
   win.select({videoRequested:true,audioRequested:false},v=>granted=v);
   assert.equal(granted.video.id,'screen:1:0'); assert.equal(granted.audio,undefined);

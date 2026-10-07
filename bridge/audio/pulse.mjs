@@ -111,7 +111,11 @@ export class PulseAudioBackend extends AudioBackend {
     catch (error) { if (this.lifecycle === lifecycle) await this.stop(); throw error; }
   }
   async write(data, id) {
+    const epoch = this.epoch;
     if (this.flushing) await this.flushing;
+    // clear/stop can resolve the preceding drain while this write is waiting.
+    // That cancellation also covers writers which have not entered the queue yet.
+    if (epoch !== this.epoch) throw new Error('Audio write was cancelled before entering the playback queue.');
     const size = (Buffer.isBuffer(data) || data instanceof Uint8Array ? data : data?.data)?.length ?? 0;
     if (this.queueBytes + size > this.config.maxQueueBytes) throw new Error('Audio output queue is full.');
     const item = this.accept(data, id);

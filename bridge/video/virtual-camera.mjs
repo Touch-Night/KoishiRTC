@@ -41,7 +41,7 @@ export class VirtualCameraSink extends EventEmitter {
     if (this.state !== 'stopped') throw new Error('Virtual camera is already starting or running.');
     videoIdentifier(callId, 'callId'); videoIdentifier(sourceId, 'sourceId');
     if (signal?.aborted) throw new Error('Virtual camera start was aborted.');
-    this.state = 'starting'; this.nativeDeviceId = null; this.line = ''; this.stderr = ''; this.scope = { callId, sourceId };
+    this.state = 'starting'; this.nativeDeviceId = null; this.nativeLayout = null; this.line = ''; this.stderr = ''; this.scope = { callId, sourceId };
     this.signal = signal; this.abort = () => { void this.stop(); }; signal?.addEventListener('abort', this.abort, { once: true });
     let readyResolve, readyReject;
     const ready = new Promise((resolve, reject) => { readyResolve = resolve; readyReject = reject; });
@@ -91,6 +91,13 @@ export class VirtualCameraSink extends EventEmitter {
   message(message) {
     if (message.type === 'ready') {
       if (this.state !== 'starting' || message.device !== this.config.device || message.backend !== this.config.backend || ['width', 'height', 'fps', 'pixelFormat'].some(key => message[key] !== this.config[key])) throw new Error('Virtual-camera worker selected an unexpected device or format.');
+      if (this.config.backend === 'v4l2loopback') {
+        const expected = { width: this.config.width, height: this.config.height, pixelFormat: 'nv12', field: 1,
+          bytesPerLine: this.config.width, sizeImage: this.config.width * this.config.height * 3 / 2 };
+        if (message.outputPixelFormat !== 'nv12' || message.nativePixelFormat !== 'nv12' ||
+            Object.entries(expected).some(([key, value]) => message.nativeLayout?.[key] !== value)) throw new Error('Virtual-camera worker did not verify the negotiated NV12 layout.');
+        this.nativeLayout = expected;
+      }
       this.nativeDeviceId = videoIdentifier(message.nativeDeviceId, 'native virtual camera device ID');
       this.readyResolve?.();
     } else if (message.type === 'submitted') {

@@ -101,6 +101,20 @@ allows the controller to detect a real replacement process, release only the old
 local resources and initialize the new process once. Log output and ordinary
 status polling do not trigger relogin.
 
+Some QQ builds omit Electron's plugin-exit callbacks. The Host also checks its
+own PPAPI child processes (procfs on Linux, Electron metrics where available),
+requiring two consecutive missing observations after a process was observed.
+An unreadable process list is not treated as a crash. The supervised Linux
+`run-av-host.sh` restarts only the isolated media Host after confirmed loss;
+NapCat remains logged in. Disabling its restart option, or using an unsupervised
+Windows/macOS launcher, still requires manually restarting the media Host.
+This releases the old local call; it never redials automatically.
+
+Screen sharing and camera output do not mute or replace the independent PCM
+microphone stream. Their source changes release the previous capture resources.
+A native AVSDK crash can interrupt all media, so a successful local playback
+receipt alone cannot establish that the peer heard the audio.
+
 Participant callback layouts are pinned separately from control support.
 Linux, Windows x64 and both macOS slices have independently verified join, leave
 and room-snapshot layouts. Native

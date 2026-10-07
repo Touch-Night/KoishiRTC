@@ -619,7 +619,7 @@ test('video source HTTP proxy honors the real VideoHost call contract and retain
   await new Promise(resolve => proxy.listen(0, '127.0.0.1', resolve));
   t.after(async () => { await f.controller.stop(); for (const server of [proxy, hostServer]) { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); } });
   const call = await connected(f), base = `http://127.0.0.1:${proxy.address().port}`, headers = { Authorization: `Bearer ${token}` };
-  const sources = await fetch(base + '/v1/video/sources', { headers });
+  const sources = await fetch(base + '/v1/video/sources?callId=' + encodeURIComponent(call.id), { headers });
   assert.equal(sources.status, 200);
   const listed = (await sources.json()).data;
   assert.deepEqual(listed.find(source => source.id === 'camera:fixture-camera'), { id: 'camera:fixture-camera', name: 'Fixture camera', kind: 'camera', sourceType: 'device', channels: ['camera'] });
@@ -1059,4 +1059,114 @@ test('late idle responses and transport failures cannot cross close-query attemp
   await new Promise(resolve => setTimeout(resolve, 25));
   assert.equal(submissions.length, 2, 'stale failure and late submission success do not restart polling');
   assert.equal(f.controller.current().nativeCloseCheck.requestId, current.requestId);
+});
+
+test('lost Close or Quit ACK reconciles previously connected calls through correlated idle readback', async t => {
+  for (const scene of [1, 2, 3]) {
+    const f = fixture({ ackTimeoutMs: 5 }); t.after(() => f.controller.stop());
+    if (scene === 1) await connected(f);
+    else if (scene === 2) {
+      await f.controller.login();
+      f.native('onInviteActionToAVSDK', { invite_type: 2 }, 2, 'opaque-screen');
+      const value = [...invite]; value[0] = 2; value[3] = 3;
+      await f.controller.nativeOutput({ command: 20006, value });
+      await f.controller.control('accept', { requestId: 'accept-screen', callId: f.controller.current().id });
+      await f.controller.nativeOutput({ command: 5, requestId: 'accept-screen', value: [0] });
+      await f.controller.nativeOutput({ command: 20004, value: [0] });
+    } else {
+      await f.controller.login(); f.native('onGroupAudioMemNumChange', activity);
+      await f.controller.control('group.join', { requestId: 'join-screen', groupId: activity.group_code });
+      await f.controller.nativeOutput({ command: 4, requestId: 'join-screen', value: [0, ''] });
+      await f.controller.nativeOutput({ command: 20004, value: [0] });
+    }
+    const call = f.controller.current(), operation = scene === 3 ? 'group.leave' : 'hangup';
+    const input = { requestId: 'lost-close', callId: call.id };
+    await f.controller.control(operation, input);
+    const query = await closeQuery(f);
+    assert.equal(f.controller.current().phase, 'ending');
+    assert.equal(f.controller.current().nativeCloseCheck.trigger, 'ack-timeout');
+    assert.equal(f.controller.current().nativeTeardownUnknown, true);
+    await f.controller.nativeOutput({ command: 14, requestId: 'unrelated', value: [0, '', '0'] });
+    assert.equal(f.controller.current().phase, 'ending');
+    await f.controller.nativeOutput({ command: 14, requestId: query.requestId, value: [0, '', '0'] });
+    const ended = f.controller.current();
+    assert.equal(ended.phase, 'ended'); assert.equal(ended.nativeEndEvent, 'native.roomIdle');
+    assert.equal(ended.remoteEndedConfirmed, false); assert.equal(ended.nativeError, null);
+    assert.equal(ended.nativeAckTimedOut, false); assert.equal(ended.nativeTeardownUnknown, false);
+    assert.equal((await f.controller.control(operation, input)).status, 'unknown', 'idle observation does not invent a lost ACK');
+    assert.equal(f.invocations.filter(item => item.command === (scene === 1 ? 10 : 8)).length, 1);
+    await f.controller.nativeOutput({ command: scene === 1 ? 10 : 8, requestId: input.requestId, value: [-1, 'late error'] });
+    assert.deepEqual(f.controller.current(), ended, 'late close replies cannot resurrect the ended call');
+  }
+});
+
+test('unknown close transport is read back once without resubmitting Close', async t => {
+  const invocations = [];
+  const f = fixture({ invokeHost: async (command, params, requestId) => {
+    invocations.push({ command, params, requestId });
+    if (command === 10) throw new Error('response lost after posting');
+    return { posted: true, id: invocations.length };
+  } });
+  t.after(() => f.controller.stop()); const call = await connected(f);
+  const input = { requestId: 'lost-transport', callId: call.id };
+  assert.equal((await f.controller.control('hangup', input)).status, 'unknown');
+  const query = await closeQuery({ invocations });
+  assert.equal(f.controller.current().phase, 'ending');
+  assert.equal(f.controller.current().nativeCloseCheck.trigger, 'submission-unknown');
+  await f.controller.nativeOutput({ command: 14, requestId: query.requestId, value: [0, '', '0'] });
+  assert.equal(f.controller.current().phase, 'ended');
+  assert.equal((await f.controller.control('hangup', input)).status, 'unknown');
+  assert.equal(invocations.filter(item => item.command === 10).length, 1);
+});
+
+test('a stalled native engine remains unknown after the finite lost-ACK readback budget', async t => {
+  for (const reply of [null, [0, '', '12345']]) {
+    const f = fixture({ ackTimeoutMs: 5, closeCheckIntervalMs: 1, closeCheckTimeoutMs: 5 });
+    t.after(() => f.controller.stop()); const call = await connected(f);
+    await f.controller.control('hangup', { requestId: 'unresponsive-close', callId: call.id });
+    const answered = new Set();
+    for (let tick = 0; tick < 150 && f.controller.current().nativeCloseCheck?.status !== 'unknown'; tick++) {
+      for (const query of f.invocations.filter(item => item.command === 14)) if (!answered.has(query.requestId)) {
+        answered.add(query.requestId);
+        if (reply) await f.controller.nativeOutput({ command: 14, requestId: query.requestId, value: reply });
+      }
+      await new Promise(resolve => setTimeout(resolve, 2));
+    }
+    assert.equal(f.controller.current().phase, 'ending');
+    assert.equal(f.controller.current().nativeCloseCheck.status, 'unknown');
+    assert.equal(f.controller.current().nativeTeardownUnknown, true);
+    assert.match(f.controller.current().nativeError, /could not be confirmed/);
+    assert.equal(f.invocations.filter(item => item.command === 14).length, 6);
+    assert.equal(f.invocations.filter(item => item.command === 10).length, 1);
+    const last = f.invocations.filter(item => item.command === 14).at(-1);
+    await f.controller.nativeOutput({ command: 14, requestId: last.requestId, value: [0, '', '0'] });
+    assert.equal(f.controller.current().phase, 'ending', 'an expired readback cannot release the call');
+  }
+});
+
+test('an unconfirmed opening cannot use its initial idle room to bypass a missing close ACK', async t => {
+  const f = fixture({ ackTimeoutMs: 5 }); t.after(() => f.controller.stop());
+  const call = await incoming(f);
+  await f.controller.control('accept', { requestId: 'unconfirmed-open', callId: call.id });
+  await new Promise(resolve => setTimeout(resolve, 15));
+  await f.controller.control('hangup', { requestId: 'unconfirmed-close', callId: call.id });
+  await new Promise(resolve => setTimeout(resolve, 15));
+  assert.equal(f.controller.current().phase, 'ending');
+  assert.equal(f.invocations.filter(item => item.command === 14).length, 0);
+  await f.controller.nativeOutput({ command: 10, requestId: 'unconfirmed-close', value: [0, ''] });
+  const query = await closeQuery(f);
+  await f.controller.nativeOutput({ command: 14, requestId: query.requestId, value: [0, '', '0'] });
+  assert.equal(f.controller.current().phase, 'ended', 'a later audited close ACK enables the existing verification path');
+});
+
+test('a late close ACK preserves the pending readback and its bounded budget', async t => {
+  const f = fixture({ ackTimeoutMs: 5 }); t.after(() => f.controller.stop());
+  const call = await connected(f);
+  await f.controller.control('hangup', { requestId: 'late-close-ack', callId: call.id });
+  const query = await closeQuery(f);
+  await f.controller.nativeOutput({ command: 10, requestId: 'late-close-ack', value: [0, ''] });
+  assert.equal(f.invocations.filter(item => item.command === 14).length, 1);
+  await f.controller.nativeOutput({ command: 14, requestId: query.requestId, value: [0, '', '0'] });
+  assert.equal(f.controller.current().phase, 'ended');
+  assert.equal(f.controller.current().nativeCloseCheck.attempts, 1);
 });

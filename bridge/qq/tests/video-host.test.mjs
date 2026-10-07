@@ -3,13 +3,32 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 const { VideoHost } = createRequire(import.meta.url)('../av-host/video.cjs');
 function fixture() {
-  const sent = []; let time = 1, captures = 0, gate = Promise.resolve();
-  const host = new VideoHost({ enabled: true, now: () => time, send: async (cmd, args, id) => { sent.push([cmd, args]); if (id) queueMicrotask(() => host.handle({ id, cmd, value: [[30, 31, 33, 34, 35, 36].includes(cmd) ? 1 : 0, ''] })); }, surface: async () => {}, capture: async () => {
+  const sent = []; let time = 1, captures = 0, gate = Promise.resolve(), size;
+  const host = new VideoHost({ enabled: true, now: () => time, send: async (cmd, args, id) => { sent.push([cmd, args]); if (id) queueMicrotask(() => host.handle({ id, cmd, value: [[30, 31, 33, 34, 35, 36].includes(cmd) ? 1 : 0, ''] })); }, surface: async (width, height) => { size = { width, height }; }, capture: async () => {
     captures++; await gate;
-    return { crop: rect => ({ toJPEG: () => Buffer.from([255, 216, 255, 217]), getSize: () => ({ width: rect.width, height: rect.height }) }) };
+    return { getSize: () => size, crop: rect => ({ toJPEG: () => Buffer.from([255, 216, 255, 217]), getSize: () => ({ width: rect.width, height: rect.height }) }) };
   } });
   return { host, sent, tick: () => { time += 200; }, captures: () => captures, gate: p => { gate = p; } };
 }
+test('only current-session source preflight failures attest an unchanged video channel', async () => {
+  const { host, sent } = fixture();
+  await host.session({ callId: 'a', selfUid: 'self', nativeSceneId: 2, participants: ['peer'] });
+  const prior = host.sending.screen = { sourceId: 'selected-before', state: 'sending' };
+  const target = { callId: 'a', requestId: 'send-request', kind: 'screen', sourceId: 'missing' };
+  await assert.rejects(host.startSend(target), error => {
+    assert.equal(error.code, 'INVALID_SOURCE'); assert.deepEqual(error.videoSendFailure, { ...target, outcome: 'unchanged' }); return true;
+  });
+  assert.equal(host.sending.screen, prior); assert.equal(sent.length, 0);
+  await assert.rejects(host.startSend({ ...target, callId: 'old-call' }), error => error.code === 'STALE_CALL' && error.videoSendFailure === undefined);
+  host.sourcesById.set('selected-new', { kind: 'screen', channels: ['screen'], handle: 42 });
+  const originalSend = host.send;
+  host.send = async (command, params, id) => {
+    if (command === 44) queueMicrotask(() => host.handle({ cmd: command, id, value: [-1, 'Native capture failed'] }));
+    else return originalSend(command, params, id);
+  };
+  await assert.rejects(host.startSend({ ...target, sourceId: 'selected-new' }), error => error.videoSendFailure === undefined);
+  await host.clear();
+});
 test('video never returns a frame until the native decoder reports one for the subscribed identity', async () => {
   const f = fixture(), { host } = f;
   await host.session({ callId: 'a', selfUid: 'self', nativeSceneId: 3, participants: ['self', 'peer'] });
@@ -66,6 +85,83 @@ test('portrait sources use their original ratio instead of cropping into a lands
   assert.equal(await host.frame({ callId: 'a', trackId: 'peer:camera' }), null, 'resubscribing cannot reuse pixels or evidence from a removed native texture');
   host.handle({ cmd: 20031, value: ['peer', 1, 360, 640] });
   assert.ok(await host.frame({ callId: 'a', trackId: 'peer:camera' }));
+});
+
+test('single screen preserves readable dimensions and aspect through rotation and multiple subscriptions', async () => {
+  const { host, sent } = fixture();
+  await host.session({ callId: 'a', selfUid: 'self', nativeSceneId: 3, participants: ['peer'] });
+  await host.subscribe({ callId: 'a', uid: 'peer', kind: 'screen' });
+  host.handle({ cmd: 20031, value: ['peer', 2, 1920, 1080] });
+  let frame = await host.frame({ callId: 'a', trackId: 'peer:screen' });
+  assert.deepEqual([frame.width, frame.height], [1280, 720]);
+  assert.deepEqual(sent.filter(([cmd]) => cmd === 54).at(-1)[1][3], ['0,0,1280,720']);
+  host.handle({ cmd: 20049, value: ['peer', 2, 1080, 1920] });
+  frame = await host.frame({ callId: 'a', trackId: 'peer:screen' });
+  assert.deepEqual([frame.width, frame.height], [405, 720]);
+  await host.subscribe({ callId: 'a', uid: 'peer', kind: 'camera' });
+  host.handle({ cmd: 20031, value: ['peer', 1, 360, 640] });
+  frame = await host.frame({ callId: 'a', trackId: 'peer:screen' });
+  const camera = await host.frame({ callId: 'a', trackId: 'peer:camera' });
+  assert.deepEqual([frame.width, frame.height], [270, 480]);
+  assert.deepEqual([camera.width, camera.height], [270, 480]);
+  await host.unsubscribe({ callId: 'a', trackId: 'peer:camera' });
+  frame = await host.frame({ callId: 'a', trackId: 'peer:screen' });
+  assert.deepEqual([frame.width, frame.height], [405, 720]);
+  await host.clear(); assert.equal(host.state().receiveSurface, null);
+});
+
+test('decoded size change waits for presentation and drops captures from the old backing surface', async () => {
+  const { host } = fixture();
+  await host.session({ callId: 'a', selfUid: 'self', nativeSceneId: 3, participants: ['peer'] });
+  await host.subscribe({ callId: 'a', uid: 'peer', kind: 'screen' });
+  let release, entered;
+  const enteredPromise = new Promise(resolve => { entered = resolve; });
+  const paint = new Promise(resolve => { release = resolve; });
+  host.present = async () => { entered(); await paint; };
+  host.handle({ cmd: 20031, value: ['peer', 2, 1920, 1080] });
+  const captured = []; let currentSize = { width: 640, height: 640 };
+  host.capture = async () => {
+    captured.push(currentSize);
+    return { getSize: () => currentSize, crop: rect => {
+      assert.deepEqual(currentSize, { width: 1280, height: 720 }, 'old backing must never be cropped');
+      return { getSize: () => ({ width: rect.width, height: rect.height }), toJPEG: () => Buffer.from([255, 216, 255, 217]) };
+    } };
+  };
+  const first = host.frame({ callId: 'a', trackId: 'peer:screen' });
+  await enteredPromise; assert.equal(captured.length, 0, 'posting native layout is not presentation');
+  release(); assert.equal(await first, null);
+  assert.equal(host.state().receiveSurface.status, 'capture-size-mismatch');
+  assert.equal(host.state().receiveSurface.capturedWidth, 640);
+  currentSize = { width: 1280, height: 720 };
+  const frame = await host.frame({ callId: 'a', trackId: 'peer:screen' });
+  assert.equal(frame.width, 1280); assert.equal(host.state().receiveSurface.status, 'captured');
+});
+
+test('a pending presentation cannot restore a cleared call or capture its pixels', async () => {
+  const f = fixture(), { host } = f;
+  await host.session({ callId: 'a', selfUid: 'self', nativeSceneId: 3, participants: ['peer'] });
+  await host.subscribe({ callId: 'a', uid: 'peer', kind: 'screen' });
+  const entered = deferred(), gate = deferred();
+  host.present = async () => { entered.resolve(); await gate.promise; };
+  host.handle({ cmd: 20031, value: ['peer', 2, 1920, 1080] });
+  const frame = host.frame({ callId: 'a', trackId: 'peer:screen' });
+  await entered.promise;
+  const cleanup = host.clear(); gate.resolve(); await cleanup;
+  assert.equal(await frame, null); assert.equal(f.captures(), 0);
+  assert.equal(host.state().receiveSurface, null);
+});
+
+test('large screen frames reduce JPEG quality within the existing packet budget', async () => {
+  const { host } = fixture(), qualities = [];
+  await host.session({ callId: 'a', selfUid: 'self', nativeSceneId: 3, participants: ['peer'] });
+  await host.subscribe({ callId: 'a', uid: 'peer', kind: 'screen' });
+  host.handle({ cmd: 20031, value: ['peer', 2, 1920, 1080] });
+  host.capture = async () => ({ getSize: () => ({ width: 1280, height: 720 }), crop: rect => ({
+    getSize: () => ({ width: rect.width, height: rect.height }),
+    toJPEG: quality => { qualities.push(quality); return Buffer.alloc(quality === 35 ? 200 * 1024 : 300 * 1024); },
+  }) });
+  assert.ok(await host.frame({ callId: 'a', trackId: 'peer:screen' }));
+  assert.deepEqual(qualities, [65, 50, 35]);
 });
 test('external frame inputs keep one in flight and one latest frame, and stop fences late results', async () => {
   const { host } = fixture(); await host.session({ callId: 'a', selfUid: 'self', nativeSceneId: 3, participants: [] });
@@ -181,10 +277,30 @@ test('same peer and same resolution in another call recreates the native texture
 test('failed native layout cleanup blocks frame reuse by another call', async () => {
   const { host } = fixture();
   await host.session({ callId: 'a', selfUid: 'self', nativeSceneId: 1, participants: ['peer'] });
+  await host.subscribe({ callId: 'a', uid: 'peer', kind: 'camera' });
   host.send = async () => { throw new Error('native renderer disconnected'); };
   await host.clear();
   assert.equal(host.state().supported, false);
   await assert.rejects(host.session({ callId: 'b', selfUid: 'self', nativeSceneId: 1, participants: ['peer'] }), /disconnected/);
+});
+
+test('pristine startup clear never invokes a not-yet-ready renderer or latches a cleanup error', async () => {
+  const { host, sent } = fixture();
+  host.send = async () => { throw new Error('Native renderer is not ready'); };
+  await host.session({ callId: null }); await host.session({ callId: null });
+  assert.equal(host.state().supported, true); assert.equal(host.state().lastError, null);
+  assert.deepEqual(sent, []); assert.equal(host.nativeLayoutDirty, false);
+});
+
+test('an unknown layout submission remains dirty and failed cleanup cannot be cleared by idle repeats', async () => {
+  const { host } = fixture();
+  await host.session({ callId: 'a', selfUid: 'self', nativeSceneId: 1, participants: ['peer'] });
+  host.send = async () => { throw new Error('renderer submission response lost'); };
+  await assert.rejects(host.subscribe({ callId: 'a', uid: 'peer', kind: 'camera' }), /response lost/);
+  assert.equal(host.nativeLayoutDirty, true);
+  await host.clear(); await host.clear();
+  assert.equal(host.nativeLayoutDirty, true); assert.equal(host.state().supported, false);
+  assert.match(host.state().lastError, /response lost/);
 });
 
 function deferred() { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; }
@@ -245,8 +361,8 @@ test('a surface completing after clear cannot issue old layout or subscription c
   const next = host.session({ callId: 'new', selfUid: 'self', nativeSceneId: 3, participants: ['new-peer'] });
   gate.resolve(); await rejected; await cleanup; await next;
   assert.equal(host.sessionId, 'new'); assert.deepEqual([...host.members], ['new-peer']);
-  assert.deepEqual(sent.map(([cmd]) => cmd), [34, 54]);
-  assert.deepEqual(sent.at(-1)[1], [0, [], [], [], 640, 640, 100]);
+  assert.deepEqual(sent.map(([cmd]) => cmd), [34]);
+  assert.equal(host.nativeLayoutDirty, false, 'cancelled surface preparation never posted a native layout');
   assert.equal(host.tracks.size, 0);
 });
 
@@ -298,6 +414,23 @@ test('camera capture is published separately from screen sharing and stopped ind
   assert.equal(host.state().sending.camera, undefined);
   assert.equal(host.state().sending.screen.state, 'sending');
 });
+
+test('stopping an absent channel is idempotent while uncertain failed sends still receive native cleanup', async () => {
+  const { host, sent } = fixture(), closed = [];
+  host.closeCapture = async () => { closed.push('desktop'); };
+  await host.session({ callId: 'a', selfUid: 'self', nativeSceneId: 1, participants: ['peer'] });
+  await assert.rejects(host.startSend({ callId: 'a', kind: 'screen', sourceId: 'test-pattern' }), /screen-share call/);
+  sent.length = 0;
+  await host.stopSend({ callId: 'a', kind: 'screen' });
+  await host.stopSend({ callId: 'a', kind: 'screen' });
+  assert.deepEqual(sent, [], 'failed preflight/repeated stop cannot call native screen-stop');
+  assert.deepEqual(closed, ['desktop', 'desktop']);
+  host.sending.screen = { sourceId: 'external-frames', state: 'failed', error: 'native reply lost' };
+  await host.stopSend({ callId: 'a', kind: 'screen' });
+  assert.deepEqual(sent.map(([command]) => command), [36, 45]);
+  assert.equal(host.state().sending.screen, undefined);
+  sent.length = 0; await host.stopSend({ callId: 'a', kind: 'screen' }); assert.deepEqual(sent, []);
+});
 test('camera opening waits for DeviceOpen instead of the initial scheduling receipt', async () => {
   const { host } = fixture(); let identity, settled = false;
   host.send = async (cmd, args, id) => {
@@ -318,7 +451,7 @@ test('clearing a DAV session preserves its inverted publish acknowledgement conv
   host.sending.camera = { state: 'sending', sourceId: 'external-frames' };
   host.send = async (cmd, args, id) => { sent.push([cmd, args]); if (id) queueMicrotask(() => host.handle({ cmd, id, value: [0] })); };
   await host.clear();
-  assert.deepEqual(sent.map(([cmd]) => cmd), [54, 31, 49]);
+  assert.deepEqual(sent.map(([cmd]) => cmd), [31, 49]);
   assert.equal(host.cleanupError, null);
   assert.deepEqual(host.state().sending, {});
 });
@@ -343,4 +476,63 @@ test('native camera loss stops its output without affecting screen sharing', asy
   assert.equal(host.state().sending.camera.state, 'failed');
   assert.equal(host.state().sending.screen.state, 'sending');
   assert.deepEqual(sent.map(([cmd]) => cmd), [31, 49]);
+});
+
+test('switching screen sources retires the old owned surface after native capture stops', async () => {
+  const { host, sent } = fixture(), resources = new Set(), lifecycle = [];
+  await host.session({ callId: 'a', selfUid: 'self', nativeSceneId: 2, participants: [] });
+  host.outputBackend = {
+    open: async kind => { resources.add(kind); lifecycle.push('open frames'); return { handle: 42 }; },
+    close: async kind => { if (resources.delete(kind)) lifecycle.push('close frames'); },
+  };
+  host.testWindow = async () => { lifecycle.push('open test'); return 43; };
+  host.closeTestWindow = () => { lifecycle.push('close test'); };
+  host.sourcesById.set('external-frames', { sourceType: 'frames', channels: ['screen'] });
+  host.sourcesById.set('test-pattern', { generated: true, channels: ['screen'] });
+  const send = host.send;
+  host.send = async (...args) => { if (args[0] === 45) lifecycle.push('native capture stopped'); return send(...args); };
+  await host.startSend({ callId: 'a', kind: 'screen', sourceId: 'external-frames' });
+  assert.equal(resources.has('screen'), true);
+  lifecycle.length = 0; sent.length = 0;
+  await host.startSend({ callId: 'a', kind: 'screen', sourceId: 'test-pattern' });
+  assert.equal(resources.size, 0);
+  assert.deepEqual(lifecycle, ['native capture stopped', 'close test', 'close frames', 'open test']);
+  assert.deepEqual(sent.find(([cmd]) => cmd === 44)[1], [false, 43, false], 'screen capture remains video-only; microphone audio uses its independent route');
+  await host.clear();
+});
+
+test('switching from virtual to explicitly selected camera closes its previous producer', async () => {
+  const { host } = fixture(), resources = new Set();
+  await host.session({ callId: 'a', selfUid: 'self', nativeSceneId: 1, participants: [] });
+  host.outputBackend = {
+    open: async kind => { resources.add(kind); return { nativeDeviceId: 'virtual-id' }; },
+    close: async kind => { resources.delete(kind); },
+  };
+  host.sourcesById.set('external-frames', { sourceType: 'frames', channels: ['camera'] });
+  host.sourcesById.set('selected-camera', { sourceType: 'device', device: 'selected-id', channels: ['camera'] });
+  host.send = async (cmd, args, id) => { if (id) queueMicrotask(() => host.handle({ cmd, id, value: cmd === 46 ? [0, '', ['Virtual'], ['virtual-id']] : [0] })); };
+  await host.startSend({ callId: 'a', kind: 'camera', sourceId: 'external-frames' });
+  assert.equal(resources.has('camera'), true);
+  await host.startSend({ callId: 'a', kind: 'camera', sourceId: 'selected-camera' });
+  assert.equal(resources.size, 0);
+  assert.equal(host.state().sending.camera.sourceId, 'selected-camera');
+  await host.clear();
+});
+
+test('native process loss rejects outstanding commands and releases all local video inputs', async () => {
+  const { host, sent } = fixture(), closed = [];
+  await host.session({ callId: 'a', selfUid: 'self', nativeSceneId: 2, participants: [] });
+  host.sending = { camera: { sourceId: 'external-frames', state: 'sending' }, screen: { sourceId: 'window', state: 'sending' } };
+  host.outputBackend = { close: async kind => { closed.push(kind); } };
+  host.closeCapture = async () => { closed.push('desktop capture'); };
+  host.closeTestWindow = () => { closed.push('test window'); };
+  host.send = async (cmd, args) => { sent.push([cmd, args]); };
+  const blocked = host.native(45, []), rejected = assert.rejects(blocked, /process is unavailable/);
+  await new Promise(resolve => setImmediate(resolve));
+  host.enabled = false;
+  await host.clear(); await rejected;
+  assert.equal(host.pending.size, 0);
+  assert.deepEqual(sent.map(([cmd]) => cmd), [45], 'a missing PPAPI process receives no more native commands');
+  assert.ok(closed.includes('camera')); assert.ok(closed.includes('screen')); assert.ok(closed.includes('desktop capture'));
+  assert.deepEqual(host.state().sending, {});
 });

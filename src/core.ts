@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import type { Account, AudioFrame, CallProvider, CallRequest, CallSnapshot, Capability, Diagnostic, PlaybackReceipt, ProviderEvent, VideoFrame, VideoKind, VideoTrack, VideoState, VideoSource, VideoSubscribeRequest, VideoSendRequest, VideoWriteFrame, VideoWriteReceipt } from './types.js';
-import { terminalStates } from './types.js';
+import { terminalStates, mediaTransitionBlocksAudio, readVideoSendFailure } from './types.js';
 export * from './types.js';
 
 export class RtcError extends Error {
@@ -42,6 +42,16 @@ export function validateVideoWriteReceipt(receipt: VideoWriteReceipt, frame: Vid
 }
 interface VideoWriteJob { frame: VideoWriteFrame; resolve: (receipt: VideoWriteReceipt) => void; reject: (error: unknown) => void }
 interface VideoOutput { sourceId: string; framing: VideoSendRequest['framing']; lease: string; sequence: number; closed: boolean; pending?: VideoWriteJob; running?: Promise<void> }
+interface InitialVideo { lease: string; provider: CallProvider; request: VideoSendRequest; cancelled: boolean; started: boolean; timer?: ReturnType<typeof setTimeout>; detach(): void }
+function validateInitialVideo(request: CallRequest): void {
+  if (request.initialVideo === undefined) return;
+  if (!Array.isArray(request.initialVideo) || request.initialVideo.length < 1 || request.initialVideo.length > 2 ||
+    new Set(request.initialVideo.map(item => item?.kind)).size !== request.initialVideo.length || request.initialVideo.some(item =>
+      !item || !['camera', 'screen'].includes(item.kind) || typeof item.sourceId !== 'string' || !item.sourceId.trim() || item.sourceId.length > 2048 || item.sourceId.includes('\0') ||
+      item.framing !== undefined && (!['full', 'portrait-safe'].includes(item.framing) || item.kind !== 'camera' || item.sourceId !== 'external-frames'))) {
+    throw new RtcError('INVALID_SOURCE', '初始视频需要最多两个不重复渠道及明确来源，画幅仅适用于 external-frames 摄像头。');
+  }
+}
 const clone = <T>(value: T): T => structuredClone(value);
 
 /** Platform-independent coordinator. Only providers may confirm connection or delivery. */
@@ -59,6 +69,7 @@ export class RtcManager extends EventEmitter {
   private videoOutputUnknown = new Set<string>();
   private videoOutputs = new Map<string, Map<VideoKind, VideoOutput>>();
   private videoDrains = new Map<string, Set<Promise<void>>>();
+  private initialVideos = new Map<string, Map<VideoKind, InitialVideo>>();
   private disposed = false;
   private historyLimit: number;
   constructor(options: { historyLimit?: number } = {}) { super(); this.historyLimit = options.historyLimit ?? 100; if (!Number.isInteger(this.historyLimit) || this.historyLimit < 0 || this.historyLimit > 1000) throw new RtcError('INVALID_CONFIG', '通话历史数量必须为 0–1000。'); }
@@ -103,6 +114,13 @@ export class RtcManager extends EventEmitter {
     return [...this.providers.values()].map(p => ({ id: p.id, account: clone(p.account), capabilities: clone(p.capabilities()), audioFormat: clone(p.audioFormat) }));
   }
   listCalls(): CallSnapshot[] { return [...this.snapshots.values()].sort((a, b) => b.createdAt - a.createdAt).map(clone); }
+  async availableVideoSources(providerId: string): Promise<VideoSource[]> {
+    const provider = this.provider(providerId);
+    if (!provider.availableVideoSources) throw new RtcError('CAPABILITY_UNAVAILABLE', '后端不提供拨号前的视频来源枚举。');
+    const sources = await provider.availableVideoSources();
+    if (this.disposed || this.providers.get(providerId) !== provider) throw new RtcError('PROVIDER_OFFLINE', '枚举期间通话后端已停止。');
+    return clone(sources);
+  }
   getCall(id: string): CallSnapshot {
     const call = this.snapshots.get(id); if (!call) throw new RtcError('CALL_NOT_FOUND', '找不到这次通话。'); return clone(call);
   }
@@ -132,6 +150,7 @@ export class RtcManager extends EventEmitter {
   private owned(id: string, lease: string): CallSnapshot {
     const call = this.active(id); if (this.leases.get(id)?.id !== lease || this.leases.get(id)?.releasing) throw new RtcError('NOT_CONTROLLER', '当前插件未持有通话控制权。'); return call;
   }
+  assertControl(id: string, lease: string): void { this.owned(id, lease); }
   claim(id: string, owner: string): string {
     const call = this.active(id);
     if (this.leases.has(id)) throw new RtcError('CALL_BUSY', `通话正由 ${this.leases.get(id)!.owner} 控制。`);
@@ -141,6 +160,8 @@ export class RtcManager extends EventEmitter {
   async release(id: string, lease: string): Promise<void> {
     const held = this.leases.get(id);
     if (held?.id !== lease || held.releasing) return;
+    this.interruptVideoTransition(id);
+    this.cancelInitialVideo(id);
     held.releasing = true;
     this.closeVideoReaders(id); this.closeVideoOutputs(id);
     const call = this.snapshots.get(id);
@@ -187,12 +208,16 @@ export class RtcManager extends EventEmitter {
       request.kind !== 'group' && (request.groupMode !== undefined || request.inviteeIds !== undefined) ||
       request.inviteeIds !== undefined && (!Array.isArray(request.inviteeIds) || request.inviteeIds.length > 16 || request.inviteeIds.some(id => typeof id !== 'string' || !id.trim() || id.length > 160)) ||
       request.inviteeIds?.length && request.groupMode !== 'create') throw new RtcError('INVALID_TARGET', '邀请名单仅适用于主动发起群通话。');
+    validateInitialVideo(request);
     request = clone(request);
     return this.serial(providerId, async () => {
       signal?.throwIfAborted();
       const provider = this.provider(providerId); this.requireCapability(provider, request.kind === 'group' ? request.groupMode === 'create' ? 'startGroup' : 'joinGroup' : request.media === 'screen' ? 'dialScreen' : 'dial');
       if ([...this.snapshots.values()].some(c => c.providerId === providerId && !terminalStates.has(c.state))) throw new RtcError('ACCOUNT_BUSY', '此账号已有未结束的通话。');
-      const call = await provider.dial(request, signal);
+      // Initial media is owned by the manager's lease, never an autonomous
+      // provider instruction which could survive the calling controller.
+      const { initialVideo: _initialVideo, ...invitation } = request;
+      const call = await provider.dial(invitation, signal);
       if (this.providers.get(providerId) !== provider) throw new RtcError('PROVIDER_OFFLINE', '拨号期间通话后端已停止；请检查实际通话。');
       this.receive(provider, { type: 'call', call });
       return { call: this.getCall(call.id), lease: this.claim(call.id, owner) };
@@ -200,6 +225,7 @@ export class RtcManager extends EventEmitter {
   }
   async control(id: string, lease: string, action: 'accept' | 'reject' | 'hangup', signal?: AbortSignal): Promise<void> {
     const call = this.owned(id, lease);
+    if (action !== 'accept') { this.interruptVideoTransition(id); this.cancelInitialVideo(id); }
     await this.serial(call.providerId, async () => {
       signal?.throwIfAborted(); const current = this.owned(id, lease), provider = this.provider(current.providerId);
       const cap = action === 'hangup' && current.kind === 'group' ? 'leaveGroup' : action;
@@ -224,6 +250,7 @@ export class RtcManager extends EventEmitter {
     audio.data = Uint8Array.from(audio.data);
     return this.serial(call.providerId, async () => {
       const current = this.owned(id, lease), provider = this.provider(current.providerId);
+      if (mediaTransitionBlocksAudio(current)) throw new RtcError('MEDIA_TRANSITION', '媒体渠道正在切换或切换失败，暂不能发送音频。');
       if (current.state !== 'connected') throw new RtcError('NOT_CONNECTED', '通话尚未实际接通。');
       if (current.muted) throw new RtcError('MUTED', '麦克风已静音。');
       this.requireCapability(provider, 'sendAudio');
@@ -242,6 +269,56 @@ export class RtcManager extends EventEmitter {
     if (call.state !== 'connected') throw new RtcError('NOT_CONNECTED', '视频需要已实际接通的通话。');
     if (capability) this.requireCapability(provider, capability);
     return { call, provider };
+  }
+  /** Armed only after RtcController has retained the returned dial lease. */
+  armInitialVideo(id: string, lease: string, requests: VideoSendRequest[], signal?: AbortSignal): void {
+    const call = this.owned(id, lease), provider = this.provider(call.providerId);
+    if (this.disposed || signal?.aborted) return;
+    validateInitialVideo({ kind: call.kind, targetId: call.targetId, initialVideo: requests });
+    this.cancelInitialVideo(id);
+    const plans = new Map<VideoKind, InitialVideo>(); this.initialVideos.set(id, plans);
+    for (const request of clone(requests)) {
+      const abort = () => this.cancelInitialVideo(id, request.kind);
+      const plan: InitialVideo = { lease, provider, request, cancelled: false, started: false, detach: () => signal?.removeEventListener('abort', abort) };
+      plans.set(request.kind, plan); signal?.addEventListener('abort', abort, { once: true });
+    }
+    this.startInitialVideo(id);
+  }
+  private interruptVideoTransition(id: string): void {
+    const call = this.snapshots.get(id), provider = call && this.providers.get(call.providerId);
+    if (call && !terminalStates.has(call.state) && provider?.cancelVideoTransition) void provider.cancelVideoTransition(id).catch(error => this.emit('diagnostic', { providerId: provider.id, callId: id, error: `取消媒体切换未确认：${String(error)}` }));
+  }
+  private cancelInitialVideo(id: string, kind?: VideoKind, interrupt = true): void {
+    const plans = this.initialVideos.get(id);
+    for (const [channel, plan] of plans ?? []) if (kind === undefined || channel === kind) {
+      if (interrupt && channel === 'screen' && plan.started) this.interruptVideoTransition(id);
+      plan.cancelled = true; clearTimeout(plan.timer); plan.detach(); plans!.delete(channel);
+    }
+    if (!plans?.size) this.initialVideos.delete(id);
+  }
+  private startInitialVideo(id: string): void {
+    const call = this.snapshots.get(id), plans = this.initialVideos.get(id);
+    if (!call || call.state !== 'connected' || !plans) return;
+    for (const [kind, plan] of plans) {
+      if (plan.started || plan.cancelled) continue;
+      const valid = () => !this.disposed && !plan.cancelled && this.initialVideos.get(id)?.get(kind) === plan &&
+        this.providers.get(call.providerId) === plan.provider && this.leases.get(id)?.id === plan.lease && !this.leases.get(id)?.releasing;
+      if (!valid()) { this.cancelInitialVideo(id, kind); continue; }
+      if (!plan.provider.capabilities()[kind === 'screen' ? 'shareScreen' : 'sendVideo']?.supported) {
+        plan.timer ??= setTimeout(() => {
+          if (!valid()) return;
+          this.cancelInitialVideo(id, kind);
+          this.emit('diagnostic', { providerId: call.providerId, callId: id, error: `初始 ${kind} 画面未启动：接通后视频能力仍未就绪。` });
+        }, 15000);
+        continue;
+      }
+      plan.started = true; clearTimeout(plan.timer);
+      void this.sendVideo(id, plan.lease, plan.request, valid).catch(error => {
+        if (!plan.cancelled) this.emit('diagnostic', { providerId: call.providerId, callId: id, error: `初始 ${kind} 画面未启动：${String(error)}` });
+      }).finally(() => {
+        if (this.initialVideos.get(id)?.get(kind) === plan) this.cancelInitialVideo(id, kind, false);
+      });
+    }
   }
   private closeVideoReaders(id: string, trackId?: string) {
     const tracks = this.videoSubscriptions.get(id);
@@ -356,24 +433,42 @@ export class RtcManager extends EventEmitter {
       await provider.unsubscribeVideo(id, trackId);
     }, true);
   }
-  async sendVideo(id: string, lease: string, request: VideoSendRequest): Promise<VideoState> {
+  async sendVideo(id: string, lease: string, request: VideoSendRequest, initialStillCurrent?: () => boolean): Promise<VideoState> {
     if (!request || !['camera', 'screen'].includes(request.kind) || typeof request.sourceId !== 'string' || !request.sourceId || request.sourceId.length > 2048) throw new RtcError('INVALID_SOURCE', '请明确选择视频来源。');
     if (request.framing !== undefined && (!['full', 'portrait-safe'].includes(request.framing) || request.kind !== 'camera' || request.sourceId !== 'external-frames')) throw new RtcError('INVALID_SOURCE', '画幅仅适用于 external-frames 摄像头渠道，必须为 full 或 portrait-safe。');
     request = clone(request); const capability = request.kind === 'screen' ? 'shareScreen' : 'sendVideo';
     const { call } = this.connectedVideo(id, lease, capability);
+    if (!initialStillCurrent) this.cancelInitialVideo(id, request.kind);
+    const checkInitial = () => { if (initialStillCurrent && !initialStillCurrent()) throw new RtcError('ABORTED', '初始视频发送已取消。'); };
     return this.videoSerial(call.providerId, async () => {
+      checkInitial();
       const { provider } = this.connectedVideo(id, lease, capability);
-      if (this.videoOutputUnknown.has(`${id}\0${request.kind}`)) throw new RtcError('VIDEO_CLEANUP_REQUIRED', '上一帧写入结果未知，请先明确停止此视频渠道。');
+      if (this.videoOutputUnknown.has(`${id}\0${request.kind}`)) throw new RtcError('VIDEO_CLEANUP_REQUIRED', '上次视频启动或帧写入的结果未确认，请先停止此视频渠道。');
       if (!provider.videoSources || !provider.sendVideo || !provider.stopVideo || !provider.clearVideo) throw new RtcError('CAPABILITY_UNAVAILABLE', '后端未提供可清理的视频发送接口。');
-      const sources = await provider.videoSources(id); this.connectedVideo(id, lease, capability);
-      const source = sources.find(source => source.kind === request.kind && source.id === request.sourceId);
+      const sources = await provider.videoSources(id); checkInitial(); this.connectedVideo(id, lease, capability);
+      const source = sources.find(source => (source.kind === request.kind || source.channels?.includes(request.kind)) && source.id === request.sourceId);
       if (!source) throw new RtcError('INVALID_SOURCE', '视频来源不在当前设备列表中。');
       const framing = request.framing ?? 'full';
       const previous = this.videoOutputs.get(id)?.get(request.kind), reuse = previous && !previous.closed && previous.lease === lease && previous.sourceId === request.sourceId && previous.framing === framing;
-      if (!reuse) await Promise.allSettled(this.closeVideoOutputs(id, request.kind)); this.connectedVideo(id, lease, capability);
+      if (!reuse) await Promise.allSettled(this.closeVideoOutputs(id, request.kind)); checkInitial(); this.connectedVideo(id, lease, capability);
       this.videoDirty.add(id);
       let state: VideoState;
-      try { state = await provider.sendVideo(id, request); } catch (error) { this.closeVideoOutputs(id, request.kind); this.videoOutputUnknown.add(`${id}\0${request.kind}`); throw error; }
+      try { state = await provider.sendVideo(id, request); } catch (error) {
+        const proof = readVideoSendFailure((error as { videoSendFailure?: unknown })?.videoSendFailure, { callId: id, kind: request.kind, sourceId: request.sourceId });
+        // A provider-verified preflight refusal did not start a new sender.
+        // Keep a reused writer only when its unchanged source is confirmed;
+        // unknown delivery still requires an explicit stop before retrying.
+        if (!proof || proof.outcome !== 'unchanged') this.closeVideoOutputs(id, request.kind);
+        if (!proof) this.videoOutputUnknown.add(`${id}\0${request.kind}`);
+        if (initialStillCurrent && !initialStillCurrent()) await provider.stopVideo(id, request.kind).catch(cleanup => this.emit('diagnostic', { providerId: call.providerId, callId: id, error: `取消初始视频后的清理未确认：${String(cleanup)}` }));
+        throw error;
+      }
+      try { checkInitial(); } catch (error) {
+        await provider.stopVideo(id, request.kind).catch(cleanup => {
+          this.videoOutputUnknown.add(`${id}\0${request.kind}`);
+          this.emit('diagnostic', { providerId: call.providerId, callId: id, error: `取消初始视频后的清理未确认：${String(cleanup)}` });
+        }); throw error;
+      }
       if ((state.sending[request.kind]?.framing ?? 'full') !== framing) {
         this.closeVideoOutputs(id, request.kind); this.videoOutputUnknown.add(`${id}\0${request.kind}`);
         throw new RtcError('INVALID_VIDEO', '后端未确认请求的视频画幅，请先停止此渠道。');
@@ -389,7 +484,9 @@ export class RtcManager extends EventEmitter {
   }
   async stopVideo(id: string, lease: string, kind: VideoKind): Promise<VideoState> {
     if (!['camera', 'screen'].includes(kind)) throw new RtcError('INVALID_SOURCE', '视频来源类型无效。');
-    const call = this.owned(id, lease), draining = this.closeVideoOutputs(id, kind);
+    const call = this.owned(id, lease); this.cancelInitialVideo(id, kind);
+    if (kind === 'screen') this.interruptVideoTransition(id);
+    const draining = this.closeVideoOutputs(id, kind);
     return this.videoSerial(call.providerId, async () => {
       await Promise.allSettled(draining);
       const current = this.owned(id, lease), provider = this.provider(current.providerId);
@@ -519,10 +616,12 @@ export class RtcManager extends EventEmitter {
         this.closeVideoReaders(call.id);
         if (this.videoDirty.has(call.id) && !caps.sendVideo?.supported && !caps.shareScreen?.supported) void this.videoSerial(provider.id, () => this.clearProviderVideo(call.id, provider), true).catch(error => this.emit('diagnostic', { providerId: provider.id, error: String(error) }));
       }
+      for (const call of this.snapshots.values()) if (call.providerId === provider.id) this.startInitialVideo(call.id);
       this.emit('availability');
     }
   }
   private update(call: CallSnapshot): void {
+    if (terminalStates.has(call.state) || call.state === 'ending') this.cancelInitialVideo(call.id, undefined, !terminalStates.has(call.state));
     if (terminalStates.has(call.state)) {
       this.leases.delete(call.id); delete call.owner;
     }
@@ -544,6 +643,7 @@ export class RtcManager extends EventEmitter {
     }
     this.snapshots.set(call.id, clone(call));
     this.emit('call', clone(call));
+    this.startInitialVideo(call.id);
     const ended = [...this.snapshots.values()].filter(c => terminalStates.has(c.state)).sort((a, b) => a.updatedAt - b.updatedAt);
     for (const stale of ended.slice(0, Math.max(0, ended.length - this.historyLimit))) this.snapshots.delete(stale.id);
   }
@@ -557,7 +657,19 @@ export class RtcController {
   constructor(private manager: RtcManager, readonly owner: string) {}
   private lease(id: string) { if (this.disposed) throw new RtcError('DISPOSED', '控制者已释放。'); const lease = this.leases.get(id); if (!lease) throw new RtcError('NOT_CONTROLLER', '请先取得通话控制权。'); return lease; }
   claim(id: string) { if (this.disposed) throw new RtcError('DISPOSED', '控制者已释放。'); if (!this.leases.has(id)) this.leases.set(id, this.manager.claim(id, this.owner)); return this.manager.getCall(id); }
-  async dial(providerId: string, request: CallRequest, signal?: AbortSignal) { if (this.disposed) throw new RtcError('DISPOSED', '控制者已释放。'); const result = await this.manager.originate(providerId, request, this.owner, signal); if (this.disposed) { await this.manager.release(result.call.id, result.lease); throw new RtcError('DISPOSED', '控制者已释放。'); } this.leases.set(result.call.id, result.lease); return this.manager.getCall(result.call.id); }
+  assertControl(id: string): void { this.manager.assertControl(id, this.lease(id)); }
+  async dial(providerId: string, request: CallRequest, signal?: AbortSignal) {
+    if (this.disposed) throw new RtcError('DISPOSED', '控制者已释放。');
+    request = clone(request);
+    const result = await this.manager.originate(providerId, request, this.owner, signal);
+    if (this.disposed || signal?.aborted) {
+      await this.manager.release(result.call.id, result.lease);
+      throw new RtcError(this.disposed ? 'DISPOSED' : 'ABORTED', this.disposed ? '控制者已释放。' : '拨号请求已取消。');
+    }
+    this.leases.set(result.call.id, result.lease);
+    if (request.initialVideo) this.manager.armInitialVideo(result.call.id, result.lease, request.initialVideo, signal);
+    return this.manager.getCall(result.call.id);
+  }
   accept(id: string, signal?: AbortSignal) { return this.manager.control(id, this.lease(id), 'accept', signal); }
   reject(id: string, signal?: AbortSignal) { return this.manager.control(id, this.lease(id), 'reject', signal); }
   hangup(id: string, signal?: AbortSignal) { return this.manager.control(id, this.lease(id), 'hangup', signal); }

@@ -95,3 +95,20 @@ test('the sandboxed HTML loads the same helper and renderer without Node or inli
   await sandbox.rtcFrame('sandbox-frame');
   assert.deepEqual(f.calls.at(-1).slice(2), [350, 196.875, 324, 182.25]);
 });
+
+test('generated pattern is explicitly labelled, animated and readable inside the phone crop', async () => {
+  const f = fixture(); f.context.fillText = (...args) => f.calls.push(['text', ...args]);
+  const renderer = createFrameRenderer(f.canvas, { ImageClass: f.Image, nextFrame: done => done() });
+  renderer.size(1024, 640);
+  await renderer.testPattern(0);
+  const texts = f.calls.filter(call => call[0] === 'text');
+  assert.ok(texts.some(call => call[1] === '测试画面'));
+  assert.ok(texts.some(call => call[1] === 'TEST PATTERN'));
+  assert.ok(texts.every(([, , center, , width]) => center === 512 && width <= 324));
+  const firstMarker = f.calls.at(-1); f.calls.length = 0;
+  await renderer.testPattern(1000);
+  assert.notDeepEqual(f.calls.at(-1), firstMarker);
+  assert.ok(f.calls.some(call => call[0] === 'text' && call[1] === '1.0 s'));
+  assert.ok(f.calls.every(call => call[0] !== 'decoded' && call[0] !== 'draw'));
+  await assert.rejects(renderer.testPattern(Infinity), /clock/);
+});

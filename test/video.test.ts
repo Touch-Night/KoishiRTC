@@ -185,6 +185,82 @@ test('daemon validates native frames, keeps PCM moving during subscribe and clea
   assert.equal(f.control.calls.get('call').state, 'connected', 'media cleanup must not hang up');
 });
 
+test('screen start, source switch, failed video and stop keep the same duplex audio session', { timeout: 8000 }, async t => {
+  const f = await desktopFixture(); let gate = deferred();
+  t.after(async () => { gate.resolve(); await f.daemon.stop(); });
+  let starts = 0, stops = 0, clears = 0;
+  f.audio.start = async () => { starts++; }; f.audio.stop = async () => { stops++; }; f.audio.clear = async () => { clears++; };
+  const client = await socketClient(f.url); t.after(() => client.socket.terminate());
+  await until(() => starts === 1);
+  const original = f.control.video; let enter = false, failVideo = false;
+  f.control.video = async (op: string, args: any) => {
+    if (op === 'sources') return ['test-screen', 'other-screen'].map(id => ({ id, kind: 'screen', name: id }));
+    if (op === 'send') { enter = true; await gate.promise; if (failVideo) throw new Error('screen capture unavailable'); }
+    return original(op, args);
+  };
+  let sequence = 0;
+  const assertDuplex = async () => {
+    const seq = sequence++, data = Buffer.alloc(1920, seq + 1);
+    const written = await client.request('audio.write', { playbackId: `pcm-${seq}`, frame: { callId: 'call', sequence: seq, timestamp: Date.now(), encoding: 'pcm_s16le', sampleRate: 48000, channels: 1, data: data.toString('base64') } });
+    assert.equal(written.ok, true); assert.equal(written.data.acceptedBytes, data.length);
+    f.audio.emit('audio', { data, sampleRate: 48000, channels: 1, sequence: seq, timestamp: Date.now() });
+    await until(() => client.packets.some(packet => packet.type === 'audio' && packet.frame.sequence === seq));
+    assert.equal(client.packets.find(packet => packet.type === 'audio' && packet.frame.sequence === seq).frame.data, data.toString('base64'));
+    assert.deepEqual({ starts, stops, clears }, { starts: 1, stops: 0, clears: 0 });
+  };
+  let pending = client.request('video.send', { callId: 'call', kind: 'screen', sourceId: 'test-screen' });
+  await until(() => enter); await assertDuplex(); gate.resolve(); assert.equal((await pending).ok, true);
+  await assertDuplex();
+  enter = false; gate = deferred();
+  pending = client.request('video.send', { callId: 'call', kind: 'screen', sourceId: 'other-screen' });
+  await until(() => enter); await assertDuplex(); gate.resolve(); assert.equal((await pending).ok, true);
+  enter = false; failVideo = true; gate = deferred();
+  pending = client.request('video.send', { callId: 'call', kind: 'screen', sourceId: 'test-screen' });
+  await until(() => enter); await assertDuplex(); gate.resolve(); assert.equal((await pending).ok, false);
+  await assertDuplex();
+  assert.equal((await client.request('video.stop', { callId: 'call', kind: 'screen' })).ok, true);
+  await assertDuplex();
+  assert.equal(f.control.calls.get('call').state, 'connected');
+});
+
+test('a screen scene rejection reserves no cleanup and preserves existing camera and PCM', { timeout: 8000 }, async t => {
+  const f = await desktopFixture(); t.after(() => f.daemon.stop());
+  const client = await socketClient(f.url); t.after(() => client.socket.terminate());
+  const original = f.control.video;
+  f.control.video = async (op: string, args: any) => {
+    if (op === 'sources') return [
+      { id: 'camera', kind: 'camera', name: 'Camera fixture' },
+      { id: 'screen', kind: 'screen', name: 'Screen fixture' },
+    ];
+    if (op === 'send' && args.kind === 'screen') throw Object.assign(new Error('screen requires scene 2 or 3'), { code: 'VIDEO_SCENE_UNSUPPORTED' });
+    return original(op, args);
+  };
+  assert.equal((await client.request('video.subscribe', { callId: 'call', participantId: 'u1', kind: 'camera' })).ok, true);
+  assert.equal((await client.request('video.send', { callId: 'call', kind: 'camera', sourceId: 'camera' })).ok, true);
+  const rejected = await client.request('video.send', { callId: 'call', kind: 'screen', sourceId: 'screen' });
+  assert.equal(rejected.ok, false); assert.equal(rejected.error.code, 'VIDEO_SCENE_UNSUPPORTED');
+  assert.equal((await client.request('video.state', { callId: 'call' })).ok, true, 'an untouched camera must not require cleanup after a rejected screen start');
+  const written = await client.request('audio.write', { playbackId: 'after-rejected-screen', frame: { callId: 'call', sequence: 0, timestamp: Date.now(), encoding: 'pcm_s16le', sampleRate: 48000, channels: 1, data: Buffer.alloc(1920).toString('base64') } });
+  assert.equal(written.ok, true); assert.equal(f.audioWrites, 1);
+  assert.equal((await client.request('video.clear', { callId: 'call' })).ok, true);
+  assert.deepEqual(f.operations.filter(x => x.op === 'stop').map(x => x.kind), ['camera'], 'only the actually started channel requires native stop');
+  assert.equal(f.tracks.size, 0);
+});
+
+test('an unacknowledged screen start still reserves cleanup', { timeout: 8000 }, async t => {
+  const f = await desktopFixture(); t.after(() => f.daemon.stop());
+  const client = await socketClient(f.url); t.after(() => client.socket.terminate());
+  const original = f.control.video;
+  f.control.video = async (op: string, args: any) => {
+    if (op === 'send') { await original(op, args); throw Object.assign(new Error('native reply was lost'), { code: 'AV_HOST_TIMEOUT' }); }
+    return original(op, args);
+  };
+  assert.equal((await client.request('video.send', { callId: 'call', kind: 'screen', sourceId: 'test-screen' })).ok, false);
+  assert.equal((await client.request('video.state', { callId: 'call' })).error.code, 'VIDEO_CLEANUP_REQUIRED');
+  assert.equal((await client.request('video.clear', { callId: 'call' })).ok, true);
+  assert.deepEqual(f.operations.filter(x => x.op === 'stop').map(x => x.kind), ['screen']);
+});
+
 test('disconnect before subscribe response still removes the eventually created native track', { timeout: 8000 }, async t => {
   const f = await desktopFixture(); t.after(() => f.daemon.stop()); const client = await socketClient(f.url); const gate = deferred(); f.setGate(gate.promise);
   client.socket.send(JSON.stringify({ type: 'request', id: 'late-subscribe', op: 'video.subscribe', args: { callId: 'call', participantId: 'u1', kind: 'camera' } }));
@@ -529,4 +605,48 @@ test('QQ maps explicit framing unchanged to the native video controller', async 
   await control.video('send', { callId: 'boot:2:local', kind: 'camera', sourceId: 'external-frames', framing: 'portrait-safe' });
   assert.deepEqual(submitted, { callId: 'native', kind: 'camera', sourceId: 'external-frames', framing: 'portrait-safe' });
   await assert.rejects(control.video('send', { callId: 'boot:2:local', kind: 'screen', sourceId: 'external-frames', framing: 'full' }), (e: any) => e.code === 'INVALID_SOURCE');
+});
+
+test('confirmed send preflight refusal can be retried without stop; unknown or mismatched receipts remain fenced', async t => {
+  for (const scenario of ['unchanged', 'stopped', 'missing', 'wrong-call', 'wrong-kind', 'wrong-source', 'wrong-outcome'] as const) {
+    const f = await coreFixture(); t.after(() => f.manager.dispose()); let attempts = 0;
+    const original = f.provider.sendVideo!;
+    f.provider.sendVideo = async (id, request) => {
+      if (++attempts > 1) return original(id, request);
+      const proof: any = { requestId: 'send-check', callId: id, kind: request.kind, sourceId: request.sourceId, outcome: scenario === 'stopped' ? 'stopped' : 'unchanged' };
+      if (scenario === 'wrong-call') proof.callId = 'another-call';
+      if (scenario === 'wrong-kind') proof.kind = 'camera';
+      if (scenario === 'wrong-source') proof.sourceId = 'another-source';
+      if (scenario === 'wrong-outcome') proof.outcome = 'unknown';
+      throw Object.assign(new Error('Selected source no longer exists'), { code: 'INVALID_SOURCE', ...(scenario === 'missing' ? {} : { videoSendFailure: proof }) });
+    };
+    await assert.rejects(f.owner.sendVideo('call', { kind: 'screen', sourceId: 'screen:test' }), /Selected source/);
+    if (scenario === 'unchanged' || scenario === 'stopped') {
+      assert.equal((await f.owner.sendVideo('call', { kind: 'screen', sourceId: 'screen:test' })).sending.screen?.state, 'sending');
+      assert.equal(attempts, 2);
+    } else {
+      await assert.rejects(f.owner.sendVideo('call', { kind: 'screen', sourceId: 'screen:test' }), (e: any) => e.code === 'VIDEO_CLEANUP_REQUIRED');
+      assert.equal(attempts, 1);
+    }
+  }
+});
+
+test('preflight proof crosses daemon/provider/core without revoking camera or receive tracks', { timeout: 8000 }, async t => {
+  const f = await desktopFixture(), manager = new RtcManager(); t.after(async () => { await manager.dispose(); await f.daemon.stop(); });
+  const original = f.control.video; let screenStarts = 0;
+  f.control.video = async (op: string, args: any, requestId: string) => {
+    if (op === 'sources') return [{ id: 'test-camera', kind: 'camera', name: 'Camera' }, { id: 'test-screen', kind: 'screen', name: 'Screen' }];
+    if (op === 'send' && args.kind === 'screen' && ++screenStarts === 1) throw Object.assign(new Error('Screen source preflight refused'), { code: 'INVALID_SOURCE', videoSendFailure: { requestId, callId: args.callId, kind: args.kind, sourceId: args.sourceId, outcome: 'unchanged' } });
+    return original(op, args);
+  };
+  const provider = new DesktopBridgeProvider({ id: 'desktop', url: f.url, token, selfId: '1', platform: 'test' }); await manager.register(provider);
+  await until(() => manager.listCalls().length === 1); const id = manager.listCalls()[0]!.id, owner = manager.controller('plugin'); owner.claim(id);
+  const track = await owner.subscribeVideo(id, { participantId: 'u1', kind: 'camera' });
+  await owner.sendVideo(id, { kind: 'camera', sourceId: 'test-camera' });
+  await assert.rejects(owner.sendVideo(id, { kind: 'screen', sourceId: 'test-screen' }), (e: any) => e.videoSendFailure?.callId === id && e.videoSendFailure?.kind === 'screen');
+  const state = await owner.videoState(id);
+  assert.equal(state.sending.camera?.state, 'sending'); assert.equal(state.tracks[0]?.trackId, track.trackId);
+  assert.equal(f.operations.some((x: any) => x.op === 'stop' || x.op === 'unsubscribe'), false);
+  assert.equal((await owner.sendVideo(id, { kind: 'screen', sourceId: 'test-screen' })).sending.screen?.state, 'sending');
+  assert.equal(screenStarts, 2); assert.equal(f.sending.camera.state, 'sending');
 });
